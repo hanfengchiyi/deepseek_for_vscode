@@ -1,0 +1,15 @@
+node_modules/
+src/
+tests/
+docs/
+*.md
+.vscode/
+.gitignore
+.eslintrc.cjs
+.prettierrc
+.eslintcache
+.vscode-test/
+coverage/
+*.tsbuildinfo
+pnpm-workspace.yaml
+tsconfig.json

@@ -1,0 +1,50 @@
+{
+  "name": "dsh-vscode",
+  "displayName": "DeepSeek Harness",
+  "description": "DeepSeek Harness inside VS Code — chat, tools, skills, multi-agent.",
+  "version": "0.1.0",
+  "publisher": "hanfengchiyi",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.95.0",
+    "node": ">=20"
+  },
+  "categories": ["AI", "Chat", "Programming Languages"],
+  "keywords": ["deepseek", "agent", "harness", "dsh"],
+  "main": "./dist/extension/extension.js",
+  "activationEvents": ["onCommand:dsh.openChat"],
+  "contributes": {
+    "commands": [
+      { "command": "dsh.openChat", "title": "DeepSeek Harness: Open Chat" }
+    ]
+  },
+  "scripts": {
+    "build:host": "node esbuild.config.mjs",
+    "build:webview": "pnpm --filter @dsh/webview run build",
+    "build": "pnpm run build:host && pnpm run build:webview",
+    "watch:host": "node esbuild.config.mjs --watch",
+    "watch:webview": "pnpm --filter @dsh/webview run dev",
+    "test:unit": "vitest run",
+    "test:integration": "vscode-test",
+    "test": "pnpm run test:unit && pnpm run test:integration",
+    "package": "pnpm run build && vsce package",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,html,json}\""
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-base": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-headless": "0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/vscode": "^1.95.0",
+    "@vscode/test-electron": "^2.4",
+    "@vscode/vsce": "^2.24",
+    "esbuild": "^0.20",
+    "eslint": "^8.57",
+    "prettier": "^3",
+    "typescript": "^5.4",
+    "vitest": "^1.6"
+  }
+}

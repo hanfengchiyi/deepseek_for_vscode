@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "pnpm: build:host",
+      "type": "shell",
+      "command": "pnpm run build:host",
+      "group": "build",
+      "problemMatcher": ["$esbuild"]
+    },
+    {
+      "label": "pnpm: watch:host",
+      "type": "shell",
+      "command": "pnpm run watch:host",
+      "isBackground": true,
+      "group": "build"
+    }
+  ]
+}
