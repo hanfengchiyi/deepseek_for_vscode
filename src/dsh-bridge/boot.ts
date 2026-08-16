@@ -29,6 +29,10 @@
  *      ask the user a question; the webview answer becomes the tool
  *      result. Registered here; the webview-bound event sink is
  *      installed by the view layer via `setAskUserSink`.
+ *  11. user plugins (`./plugins`): Cordis plugins found in
+ *      `BootOptions.pluginsDir` (convention: `$DSH_HOME/plugins`) are
+ *      imported and mounted after every core service; per-plugin
+ *      failures are isolated and reported on `DshHandle.plugins`.
  *
  * The returned {@link DshHandle} disposes every plugin fiber in reverse
  * mount order; `dispose()` is idempotent.
@@ -48,6 +52,7 @@ import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
 import { registerAskUser } from "./ask-user";
 import { registerWorkspace, type WorkspaceInfo } from "./workspace";
+import { loadUserPlugins, type PluginInfo } from "./plugins";
 
 export interface BootOptions {
   /** Optional model override for the default selection new agents boot
@@ -59,6 +64,12 @@ export interface BootOptions {
    *  sessions are stamped with this folder as `meta.cwd` so persistence
    *  groups them under the project. Omit for a plain context-free chat. */
   workspace?: WorkspaceInfo;
+  /** Directory of user-level Cordis plugins to mount after the core
+   *  services (convention: `$DSH_HOME/plugins`). Each `.js`/`.mjs`/
+   *  `.cjs` file or `package.json`-bearing subdirectory is imported and
+   *  mounted; failures are isolated per plugin and reported in
+   *  {@link DshHandle.plugins}. Omit to skip user plugins. */
+  pluginsDir?: string;
 }
 
 /** Minimal Cordis ctx surface we depend on. Deliberately narrow so the
@@ -70,6 +81,9 @@ export interface DshCtx {
 export interface DshHandle {
   /** Typed view of the Cordis context's services. */
   ctx: DshCtx;
+  /** Load outcome of every user plugin found in `BootOptions.pluginsDir`
+   *  (empty when no pluginsDir was given). */
+  plugins: PluginInfo[];
   /** Whether `dispose()` has been called. */
   disposed: boolean;
   /** Idempotent disposer; safe to call multiple times. */
@@ -153,15 +167,24 @@ export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
   // the webview instead of relaunching VS Code with an env var.
   await mount(LocalCredentialProvider);
 
+  // User plugins come last so every core service (llm, agents, sessions,
+  // tools, systemPrompt, credentials) is already on the context when
+  // they mount. Per-plugin failures are isolated inside loadUserPlugins.
+  const userPlugins = opts.pluginsDir
+    ? await loadUserPlugins(ctx as unknown as DshCtx, opts.pluginsDir)
+    : { plugins: [] as PluginInfo[], dispose: async () => {} };
+
   let disposed = false;
   return {
     ctx: ctx as unknown as DshCtx,
+    plugins: userPlugins.plugins,
     get disposed() {
       return disposed;
     },
     async dispose() {
       if (disposed) return;
       disposed = true;
+      await userPlugins.dispose();
       disposeWorkspace?.();
       disposeAskUser();
       for (const fiber of fibers.reverse()) {

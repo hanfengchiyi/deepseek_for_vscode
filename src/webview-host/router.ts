@@ -1,6 +1,7 @@
 import type * as vscode from "vscode";
 import type { HostCommand, WebviewEvent } from "../shared/protocol";
 import type { DshHandle } from "../dsh-bridge/boot";
+import type { PluginInfo } from "../dsh-bridge/plugins";
 import { cancelTurn, pushUserMessage } from "../dsh-bridge/agents";
 import { answerQuestion, cancelSessionQuestions } from "../dsh-bridge/ask-user";
 import { setApiKey } from "../dsh-bridge/credentials";
@@ -30,13 +31,17 @@ export interface WebviewViewLike {
  *  commands stall until boot completes instead of being dropped. */
 export interface RouterDsh {
   ctx: DshHandle["ctx"];
+  /** Boot-time user-plugin load outcomes; drives the plugin panel. */
+  plugins?: PluginInfo[];
 }
 
 /** Host capabilities the router needs beyond the webview channel.
  *  `promptSecret` shows a native (host-side) secret input so key
- *  material never transits the webview DOM. */
+ *  material never transits the webview DOM. `openPluginsDir` reveals
+ *  the plugins directory in the OS file manager. */
 export interface RouterDeps {
   promptSecret?: (title: string) => Promise<string | undefined>;
+  openPluginsDir?: () => void;
 }
 
 export function installRouter(
@@ -57,7 +62,7 @@ export function installRouter(
     try {
       // Await the (possibly still booting) DSH handle. Boot failure
       // rejects here and surfaces as a protocol error event below.
-      const { ctx } = await dsh;
+      const { ctx, plugins } = await dsh;
       switch (msg.type) {
         case "chat.send":
           await pushUserMessage(ctx, msg.sessionId, msg.text);
@@ -100,14 +105,30 @@ export function installRouter(
           break;
         }
         case "ready":
-          // Populate the model picker and the history panel on first
-          // open; the transcript arrives via `session.open` / chat.
+          // Populate the model picker, the history panel, and the
+          // plugin panel on first open; the transcript arrives via
+          // `session.open` / chat.
           await view.webview.postMessage(await getModelCatalog(ctx));
           await view.webview.postMessage({
             v: 1,
             type: "session.history",
             sessions: await listHistory(ctx),
           });
+          await view.webview.postMessage({
+            v: 1,
+            type: "plugin.catalog",
+            plugins: plugins ?? [],
+          });
+          break;
+        case "plugin.list":
+          await view.webview.postMessage({
+            v: 1,
+            type: "plugin.catalog",
+            plugins: plugins ?? [],
+          });
+          break;
+        case "plugin.openDir":
+          deps.openPluginsDir?.();
           break;
         case "session.list":
           await view.webview.postMessage({

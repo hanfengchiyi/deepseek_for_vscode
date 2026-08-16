@@ -134,6 +134,28 @@ describe("webview app smoke", () => {
     expect(container.querySelector(".dsh-markdown pre code")).not.toBeNull();
   });
 
+  it("shows the plugin panel from plugin.catalog", async () => {
+    const { container } = await renderApp();
+    await emit({
+      v: 1,
+      type: "plugin.catalog",
+      plugins: [
+        { id: "demo.js", path: "/plugins/demo.js", status: "loaded" },
+        { id: "bad.js", path: "/plugins/bad.js", status: "error", error: "boom" },
+      ],
+    });
+    // Open the panel via the header toggle.
+    const toggle = container.querySelector('button[aria-label="Plugins"]') as HTMLButtonElement;
+    await act(async () => {
+      toggle.click();
+    });
+    const rows = container.querySelectorAll(".dsh-plugin-row");
+    expect(rows.length).toBe(2);
+    expect(container.querySelector(".dsh-plugin-loaded")).not.toBeNull();
+    expect(container.querySelector(".dsh-plugin-error")).not.toBeNull();
+    expect(container.textContent).toContain("demo.js");
+  });
+
   it("shows the ask_user question card and sends the answer", async () => {
     const { container } = await renderApp();
     await emit({

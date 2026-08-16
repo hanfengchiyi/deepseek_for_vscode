@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { ChatHistory } from "./components/ChatHistory";
 import { ChatInput } from "./components/ChatInput";
 import { ModelBar } from "./components/ModelBar";
+import { PluginPanel } from "./components/PluginPanel";
 import { QuestionCard } from "./components/QuestionCard";
 import { SessionList } from "./components/SessionList";
 import { onMessage, send } from "./messages/client";
@@ -10,6 +11,7 @@ import { useChatStore } from "./state/store";
 export const App: React.FC = () => {
   const error = useChatStore((s) => s.error);
   const historyOpen = useChatStore((s) => s.historyOpen);
+  const pluginsOpen = useChatStore((s) => s.pluginsOpen);
 
   useEffect(() => {
     const unsubscribe = onMessage((ev) => {
@@ -55,6 +57,9 @@ export const App: React.FC = () => {
             options: ev.options,
           });
           break;
+        case "plugin.catalog":
+          store.setPlugins(ev.plugins);
+          break;
         case "model.catalog":
           store.setCatalog(ev);
           break;
@@ -80,6 +85,14 @@ export const App: React.FC = () => {
       <header className="dsh-header">
         <span>DeepSeek Harness</span>
         <span className="dsh-header-actions">
+          <button
+            className="dsh-header-button"
+            onClick={() => useChatStore.getState().togglePlugins()}
+            title="Plugins"
+            aria-label="Plugins"
+          >
+            🧩
+          </button>
           <button
             className="dsh-header-button"
             onClick={() => useChatStore.getState().toggleHistory()}
@@ -114,7 +127,7 @@ export const App: React.FC = () => {
           </button>
         </div>
       ) : null}
-      {historyOpen ? <SessionList /> : <ChatHistory />}
+      {historyOpen ? <SessionList /> : pluginsOpen ? <PluginPanel /> : <ChatHistory />}
       <QuestionCard />
       <ChatInput />
     </div>

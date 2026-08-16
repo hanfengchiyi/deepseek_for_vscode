@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
+import * as path from "node:path";
 import { installRouter } from "./router";
 import { setAskUserSink } from "../dsh-bridge/ask-user";
-import { bootDsh, type DshHandle } from "../dsh-bridge/boot";
+import { bootDsh, dshHome, type DshHandle } from "../dsh-bridge/boot";
 import { subscribeDshEvents } from "../dsh-bridge/events";
 
 export const CHAT_VIEW_TYPE = "dsh.chatView";
@@ -47,10 +48,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     // disappearing (a dropped `ready` used to leave the model bar and
     // history panel permanently empty).
     const ws = vscode.workspace.workspaceFolders?.[0];
+    const pluginsDir = path.join(dshHome(), "plugins");
     this.booting ??= bootDsh({
       workspace: ws ? { root: ws.uri.fsPath, name: ws.name } : undefined,
+      pluginsDir,
     });
-    const routerDsh = this.booting.then((dsh) => ({ ctx: dsh.ctx }));
+    const routerDsh = this.booting.then((dsh) => ({ ctx: dsh.ctx, plugins: dsh.plugins }));
     // The router consumes `routerDsh` only when a message arrives; if
     // boot fails before that, this keeps the rejection from going
     // unhandled (the router's own await still sees it).
@@ -68,6 +71,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ignoreFocusOut: true,
           }),
         ),
+      // Reveal $DSH_HOME/plugins so the user can drop Cordis plugins in.
+      // Create it first — the folder doesn't exist until the first
+      // plugin is added, and revealFileInOS fails on missing paths.
+      openPluginsDir: () => {
+        void vscode.workspace.fs
+          .createDirectory(vscode.Uri.file(pluginsDir))
+          .then(() =>
+            vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(pluginsDir)),
+          );
+      },
     });
     view.onDidDispose(() => {
       setAskUserSink(undefined);

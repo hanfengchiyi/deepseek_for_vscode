@@ -51,6 +51,14 @@ export interface PendingQuestion {
   options?: string[];
 }
 
+/** One user plugin's boot-time load outcome (host `plugin.catalog`). */
+export interface PluginEntry {
+  id: string;
+  path: string;
+  status: "loaded" | "error";
+  error?: string;
+}
+
 /** Fresh session id for a new conversation. The agent is created lazily
  *  host-side on the first `chat.send`, so minting an id here is all a
  *  "new chat" needs. */
@@ -79,6 +87,10 @@ interface ChatState {
   history: HistoryEntry[];
   /** Whether the history panel is visible. */
   historyOpen: boolean;
+  /** User plugins loaded at boot; null until the first plugin.catalog. */
+  plugins: PluginEntry[] | null;
+  /** Whether the plugin panel is visible. */
+  pluginsOpen: boolean;
   /** Live `ask_user` question awaiting an answer; null when none. */
   question: PendingQuestion | null;
   setInput: (s: string) => void;
@@ -93,6 +105,8 @@ interface ChatState {
   }) => void;
   setHistory: (history: HistoryEntry[]) => void;
   toggleHistory: () => void;
+  setPlugins: (plugins: PluginEntry[]) => void;
+  togglePlugins: () => void;
   /** Show or clear the `ask_user` question card. */
   setQuestion: (question: PendingQuestion | null) => void;
   /** Replace the view with a (resumed) session's transcript. */
@@ -141,12 +155,18 @@ export const useChatStore = create<ChatState>((set) => ({
   lastUsage: null,
   history: [],
   historyOpen: false,
+  plugins: null,
+  pluginsOpen: false,
   question: null,
   setInput: (input) => set({ input }),
   setError: (error) => set({ error, ...(error ? { busy: false } : null) }),
   setBusy: (busy) => set({ busy }),
   setHistory: (history) => set({ history }),
-  toggleHistory: () => set((s) => ({ historyOpen: !s.historyOpen })),
+  // The history and plugin panels share the same area; opening one
+  // closes the other.
+  toggleHistory: () => set((s) => ({ historyOpen: !s.historyOpen, pluginsOpen: false })),
+  setPlugins: (plugins) => set({ plugins }),
+  togglePlugins: () => set((s) => ({ pluginsOpen: !s.pluginsOpen, historyOpen: false })),
   setQuestion: (question) => set({ question }),
   loadTranscript: (sessionId, messages) =>
     set({

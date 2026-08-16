@@ -84,6 +84,18 @@ export interface QuestionAnswer {
   answer: string;
 }
 
+/** Ask the host for the user-plugin load outcomes from boot. */
+export interface PluginListRequest {
+  v: 1;
+  type: "plugin.list";
+}
+
+/** Ask the host to reveal the plugins directory in the OS file manager. */
+export interface PluginDirOpen {
+  v: 1;
+  type: "plugin.openDir";
+}
+
 export type HostCommand =
   | ChatSend
   | ChatCancel
@@ -94,7 +106,9 @@ export type HostCommand =
   | SessionList
   | SessionOpen
   | SessionNew
-  | QuestionAnswer;
+  | QuestionAnswer
+  | PluginListRequest
+  | PluginDirOpen;
 
 // 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ Outbound (host 鈫?webview) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
@@ -199,6 +213,19 @@ export interface QuestionRequest {
   options?: string[];
 }
 
+/** Boot-time load outcome of every user plugin found in the plugins
+ *  directory; mirrors `PluginInfo` in `dsh-bridge/plugins.ts`. */
+export interface PluginCatalog {
+  v: 1;
+  type: "plugin.catalog";
+  plugins: Array<{
+    id: string;
+    path: string;
+    status: "loaded" | "error";
+    error?: string;
+  }>;
+}
+
 export interface ModelCatalog {
   v: 1;
   type: "model.catalog";  /** Registered provider routes and their advertised models. A provider
@@ -272,4 +299,5 @@ export type WebviewEvent =
   | QuestionRequest
   | ModelCatalog
   | SessionHistory
-  | SessionTranscript;
+  | SessionTranscript
+  | PluginCatalog;

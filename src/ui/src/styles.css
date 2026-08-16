@@ -108,6 +108,62 @@
   opacity: 0.5;
 }
 
+/* ── Plugin panel ───────────────────────────────────────── */
+
+.dsh-plugin-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.dsh-plugin-status {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.dsh-plugin-status.dsh-plugin-loaded {
+  background: var(--vscode-testing-iconPassed, #3fb950);
+}
+
+.dsh-plugin-status.dsh-plugin-error {
+  background: var(--dsh-error);
+}
+
+.dsh-plugin-name {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dsh-plugin-state {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+.dsh-plugin-open {
+  margin: 8px;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--dsh-accent);
+  border: 1px solid var(--dsh-accent);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dsh-plugin-open:hover {
+  opacity: 0.85;
+}
+
 /* ── Model bar ──────────────────────────────────────────── */
 
 .dsh-modelbar {

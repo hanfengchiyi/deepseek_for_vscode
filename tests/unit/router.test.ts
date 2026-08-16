@@ -172,17 +172,24 @@ describe("router", () => {
     sub.dispose();
   });
 
-  it("answers ready with the catalog AND the session history", async () => {
+  it("answers ready with the catalog, the session history, and the plugin catalog", async () => {
     const { panel, sent } = makePanel();
     const { ctx } = makeCtx();
-    const sub = installRouter(panel as any, { ctx });
+    const plugins = [{ id: "demo.js", path: "/plugins/demo.js", status: "loaded" as const }];
+    const sub = installRouter(panel as any, { ctx, plugins });
     const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
     await handler({ v: 1, type: "ready" });
-    expect(sent.map((m) => m.type)).toEqual(["model.catalog", "session.history"]);
+    expect(sent.map((m) => m.type)).toEqual([
+      "model.catalog",
+      "session.history",
+      "plugin.catalog",
+    ]);
     const history = sent[1] as Extract<WebviewEvent, { type: "session.history" }>;
     // Only this workspace's sessions are listed (cwd filter).
     expect(history.sessions.map((s) => s.id)).toEqual(["s-old"]);
     expect(history.sessions[0].title).toBe("old question");
+    const catalog = sent[2] as Extract<WebviewEvent, { type: "plugin.catalog" }>;
+    expect(catalog.plugins).toEqual(plugins);
     sub.dispose();
   });
 
