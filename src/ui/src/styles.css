@@ -1,0 +1,26 @@
+:root {
+  --dsh-bg: var(--vscode-editor-background);
+  --dsh-fg: var(--vscode-editor-foreground);
+  --dsh-accent: var(--vscode-button-background);
+  --dsh-accent-fg: var(--vscode-button-foreground);
+  --dsh-border: var(--vscode-panel-border);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--dsh-fg);
+  background: var(--dsh-bg);
+}
+
+.dsh-app {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+.dsh-app h1 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
