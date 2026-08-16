@@ -47,14 +47,7 @@ export class ChatPanel {
       }
     });
     this.disposables.push(
-      installRouter(this.panel as WebviewPanelLike, {
-        ctx: dsh.ctx,
-        pushInbox: (item) => {
-          // M1 stub: log to the host output channel. M2 will push to the
-          // real DSH agent inbox.
-          console.log("[dsh-bridge] would push to agent inbox:", item);
-        },
-      }),
+      installRouter(this.panel as WebviewPanelLike, { ctx: dsh.ctx }),
       this.panel.onDidDispose(() => this.dispose(), null, this.disposables),
     );
   }
