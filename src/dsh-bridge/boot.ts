@@ -1,22 +1,35 @@
 /**
  * Thin Cordis wrapper around `@deepseek-ai/dsh-headless`.
  *
- * The brief for this task assumed a non-existent `createHeadlessApp`
- * factory on `@deepseek-ai/dsh-headless`. The real `0.1.0-rc.6` package
- * exports a Cordis plugin (`apply`, `name`, `inject`, `Config`, `internals`)
- * and carries no app-level factory. So this wrapper:
+ * The real `@deepseek-ai/dsh-headless@0.1.0-rc.6` exports a Cordis `apply` plugin
+ * (not a `createHeadlessApp` factory). The `apply` plugin requires:
+ *
+ *   1. a host-provided `ctx.appExit` hook (synchronously read at mount), and
+ *   2. three core services — `ctx.agents`, `ctx.agentDefaultModel`,
+ *      `ctx.sessions` — to be available before the headless tree mounts.
+ *
+ * This wrapper:
  *
  *   1. creates a Cordis root `Context`,
- *   2. registers the headless plugin's `apply` via `ctx.plugin`,
- *   3. returns a `DshHandle` whose `dispose()` is idempotent.
+ *   2. registers `ctx.appExit` as a no-op host hook (so the launcher does
+ *      not call `process.exit` from unit tests; pass `appExit` in
+ *      {@link BootOptions} to override),
+ *   3. registers the four core Cordis plugins — `LlmRuntime`,
+ *      `AgentRegistry`, `SessionStore`, `AgentDefaultModelConfig` — in an
+ *      order that satisfies the headless `inject` list,
+ *   4. mounts the headless plugin via `ctx.plugin(headless, { task: profile })`,
+ *   5. returns a {@link DshHandle} whose `dispose()` is idempotent and
+ *      tears down the headless fiber.
  *
- * The M1 test mocks both packages; the real boot path requires the
- * launcher-provided `appExit` host hook plus the core services
- * (`agents`, `sessions`, `agentDefaultModel`) — wiring those is a later
- * milestone (Task 12 integration test).
+ * The headless `apply` is the real upstream plugin; nothing here is mocked
+ * at the dsh-headless boundary, so a real boot is exercised end-to-end.
  */
 import { Context, type Fiber } from "@deepseek-ai/cordis";
-import { apply as headlessApply } from "@deepseek-ai/dsh-headless";
+import { apply as headlessApply, type Config as HeadlessConfig } from "@deepseek-ai/dsh-headless";
+import AgentRegistry from "@deepseek-ai/dsh-agent";
+import AgentDefaultModelConfig from "@deepseek-ai/dsh-agent-default-model";
+import SessionStore from "@deepseek-ai/dsh-session";
+import LlmRuntime from "@deepseek-ai/dsh-llm";
 
 export interface BootOptions {
   /** DSH profile. The headless plugin's `apply` is the only one wired up
@@ -27,6 +40,10 @@ export interface BootOptions {
    *  the injected `agentDefaultModel` service, so this is reserved for
    *  M2+ and ignored here. */
   model?: string;
+  /** The host-provided exit hook the headless plugin reads at mount via
+   *  `ctx.get("appExit")`. Defaults to a no-op so unit tests do not
+   *  call `process.exit`; a real launcher passes `process.exit`. */
+  appExit?: (code: number) => void;
 }
 
 /** Minimal Cordis ctx surface we depend on. Deliberately narrow so the
@@ -50,6 +67,9 @@ export interface HeadlessApp {
 export interface DshHandle {
   /** Typed view of the Cordis context's services. */
   ctx: DshCtx;
+  /** The Cordis fiber for the headless plugin; `dispose()` unloads it. */
+  fiber: Fiber;
+  /** Lifecycle facade kept for symmetry with the M1 test contract. */
   app: HeadlessApp;
   /** Whether `dispose()` has been called. */
   disposed: boolean;
@@ -59,18 +79,54 @@ export interface DshHandle {
 
 /** Boot a headless DSH runtime and return a handle.
  *
- *  @param opts - {@link BootOptions}; both fields are optional and
- *                default to a headless profile with no model override.
+ *  Registers the host hook + core services in this order:
+ *    1. `ctx.appExit`           (host hook, must exist before headless mounts)
+ *    2. `LlmRuntime`            (registers `ctx.llm`)
+ *    3. `AgentRegistry`         (registers `ctx.agents`)
+ *    4. `AgentDefaultModelConfig` (registers `ctx.agentDefaultModel`)
+ *    5. `SessionStore`          (registers `ctx.sessions`)
+ *    6. `headless.apply`        (mounts the one-shot driver)
+ *
+ *  @param opts - {@link BootOptions}; all fields are optional and default to
+ *                a headless profile, no model override, and a no-op
+ *                `appExit` (so tests do not call `process.exit`).
  *  @returns a {@link DshHandle} whose `dispose()` is idempotent.
  */
 export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
   const profile = opts.profile ?? "headless";
+  const appExit = opts.appExit ?? (() => {
+    /* no-op default: the headless plugin's `apply` reads `ctx.appExit`
+     * synchronously and later calls it on task completion. Unit tests
+     * rely on the no-op so a real launcher's `process.exit` is not
+     * invoked during boot verification. */
+  });
   const ctx = new Context();
-  // Register the headless plugin. The plugin's `Config` schema is
-  // `{ task: string }`; we pass the profile name as the task so the
-  // requested profile is observable through the handle (and through the
-  // mocked `apply` call args in the unit test).
-  const fiber: Fiber = await ctx.plugin(headlessApply, { task: profile });
+
+  // 1. Host hook — must be provided before `headless.apply` mounts,
+  //    because the headless `apply` reads `ctx.get("appExit")`
+  //    synchronously and throws otherwise.
+  ctx.provide("appExit", appExit);
+
+  // 2. Core services. `headless.apply` declares
+  //    `inject: ["agentDefaultModel", "agents", "sessions"]`, so
+  //    Cordis blocks headless mount until all three are provided.
+  //    Order here is not enforced by Cordis (each plugin is loaded
+  //    eagerly) but mirrors the headless `inject` list to keep the
+  //    wiring readable.
+  await ctx.plugin(LlmRuntime);
+  await ctx.plugin(AgentRegistry);
+  await ctx.plugin(AgentDefaultModelConfig, {
+    provider: opts.model ? "deepseek-official" : "deepseek-official",
+    model: opts.model ?? "deepseek-v4-flash",
+  });
+  await ctx.plugin(SessionStore);
+
+  // 3. Mount the headless plugin. The plugin's `Config` schema is
+  //    `{ task: string }`; we pass the profile name as the task so
+  //    the requested profile is observable through the handle.
+  const fiber: Fiber = await ctx.plugin(headlessApply, {
+    task: profile,
+  } as HeadlessConfig);
 
   let disposed = false;
   const app: HeadlessApp = {
@@ -88,6 +144,7 @@ export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
 
   return {
     ctx: ctx as unknown as DshCtx,
+    fiber,
     app,
     get disposed() {
       return disposed;
