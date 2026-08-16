@@ -810,6 +810,163 @@ git commit -m "feat(dsh-bridge): add bootDsh with headless profile"
 
 ---
 
+## Task 4.5: Real boot wiring — peer deps, host hook, core services
+
+> **Inserted after Task 4 review discovered:** the M1 plan's `bootDsh` is shape-only. The real `@deepseek-ai/dsh-headless@0.1.0-rc.6` is a Cordis `apply` plugin requiring `ctx.appExit` plus three core services (`agents`, `sessions`, `agentDefaultModel`) before the tree can mount. Without this task, every M1 user sees "DeepSeek Harness failed to start" on first chat. This task makes the wrapper actually boot.
+
+**Files:**
+- Modify: `package.json` (add 4 peerDependencies, install them)
+- Modify: `src/dsh-bridge/boot.ts` (provide `ctx.appExit`, register the three core services, then mount `apply`)
+- Modify: `tests/unit/boot.test.ts` (add a real-boot test that uses the un-mocked plugin)
+- Modify: `docs/superpowers/plans/2026-08-16-m1-foundation-streaming-chat.md` Task 12 (require `bootDsh()` to be called in the integration test)
+
+**Interfaces:**
+- Consumes: Task 4's `DshHandle` and `bootDsh`; `@deepseek-ai/dsh-headless` `apply`, `Config`; `@deepseek-ai/cordis` `Context`, `Fiber`; the four new peer packages.
+- Produces: a `bootDsh()` that actually mounts the headless plugin end-to-end. Subsequent tasks (5, 6, 9, 10) can then `ctx.sessions.get(...)`, `ctx.agents.inbox.push(...)`, etc., against real services.
+
+- [ ] **Step 1: Inspect what the four peer packages expose**
+
+```bash
+pnpm add @deepseek-ai/dsh-agent @deepseek-ai/dsh-agent-default-model @deepseek-ai/dsh-session @deepseek-ai/dsh-llm
+```
+
+Read each package's `package.json` and main `index.d.ts`. Specifically identify:
+- Each package's `apply(ctx, config)` plugin (or equivalent factory)
+- The order they should be registered on the Cordis context (`agents` and `sessions` are dependencies of the headless plugin's `inject` list, so they must be registered before `apply`)
+- Whether `@deepseek-ai/dsh-llm` is the right model adapter, or whether a sibling package is preferred
+
+Write the discoveries into the report.
+
+- [ ] **Step 2: Update `boot.ts` to provide `ctx.appExit` and register core services**
+
+Replace `src/dsh-bridge/boot.ts` with a new version that:
+
+```ts
+import { Context, Fiber, Service } from "@deepseek-ai/cordis";
+import headless, { Config as HeadlessConfig } from "@deepseek-ai/dsh-headless";
+// Adjust the import names below based on Step 1's discoveries.
+import agent from "@deepseek-ai/dsh-agent";
+import agentDefaultModel from "@deepseek-ai/dsh-agent-default-model";
+import session from "@deepseek-ai/dsh-session";
+// Import the LLM adapter if needed.
+
+export interface BootOptions {
+  profile?: "headless" | "web";
+  model?: string;
+}
+
+export interface DshCtx {
+  sessions?: unknown;
+  agents?: unknown;
+  llm?: unknown;
+  tools?: unknown;
+}
+
+export interface DshHandle {
+  ctx: DshCtx;
+  fiber: Fiber;
+  disposed: boolean;
+  dispose(): Promise<void>;
+}
+
+export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
+  const ctx = new Context();
+  const profile = opts.profile ?? "headless";
+
+  // 1. Host hook: headless plugin needs ctx.appExit to be a function returning a Promise.
+  ctx.plugin(Service("appExit", () => Promise.resolve()));
+
+  // 2. Core services. Order matters: `session` and `agent` are injected by `headless`.
+  ctx.plugin(agent, {});          // registers ctx.agents
+  ctx.plugin(agentDefaultModel, {}); // registers ctx.agentDefaultModel
+  ctx.plugin(session, {});        // registers ctx.sessions
+
+  // 3. Mount the headless plugin (this is what `apply` wraps).
+  const fiber = await ctx.plugin(headless, { task: profile } as HeadlessConfig);
+
+  let disposed = false;
+  return {
+    fiber,
+    ctx: ctx as DshCtx,
+    get disposed() { return disposed; },
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      await fiber.dispose();
+    },
+  };
+}
+```
+
+The exact import names and config shapes are the discovery from Step 1 — adjust as needed. The key invariants:
+- `ctx.plugin(Service("appExit", ...))` is registered **before** `ctx.plugin(headless, ...)` because `headless.apply` reads `ctx.get("appExit")` at mount time.
+- The three core services are registered in any order **before** `headless` mounts.
+- `fiber.dispose()` is the real teardown.
+
+- [ ] **Step 3: Add a real-boot test that exercises the un-mocked plugin**
+
+In `tests/unit/boot.test.ts`, add a fourth test that does **not** mock `@deepseek-ai/dsh-headless`:
+
+```ts
+it("real boot against the un-mocked package completes without throwing", async () => {
+  // The 4 peer deps are now installed and the headless plugin is unmocked.
+  // Only `Service` is faked so the test doesn't need a real process exit.
+  // Adjust if Step 1 surfaces a different registration pattern.
+  const handle = await bootDsh({ profile: "headless" });
+  expect(handle.ctx).toBeTruthy();
+  expect(handle.fiber).toBeTruthy();
+  expect((handle.ctx as { sessions?: unknown }).sessions).toBeDefined();
+  expect((handle.ctx as { agents?: unknown }).agents).toBeDefined();
+  await handle.dispose();
+});
+```
+
+This test catches the runtime failure mode that the previous "shape-only" test missed: missing `ctx.appExit`, missing peer-dep services, or boot throwing during mount.
+
+- [ ] **Step 4: Run the new test to verify real boot works**
+
+```bash
+pnpm exec vitest run tests/unit/boot.test.ts
+```
+
+Expected: 4/4 passing. If the real-boot test fails:
+- **Missing peer dep service** → register the missing plugin (the report from Step 1 will say which).
+- **`ctx.appExit` is not the right shape** → adjust the `Service(...)` registration to match the headless plugin's actual expectation.
+- **Import path differs** → fix the import per Step 1.
+
+Do **not** silence the failure by adding another mock — the test's whole point is to exercise the real boot. If the real boot cannot work in this environment, escalate.
+
+- [ ] **Step 5: Run the full unit suite and the build to confirm no regression**
+
+```bash
+pnpm exec vitest run
+pnpm run build:host
+```
+
+Expected: full unit suite passes (was 7/7, now 7+1 = 8 passing if no other tests added); build succeeds.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add package.json pnpm-lock.yaml src/dsh-bridge/boot.ts tests/unit/boot.test.ts
+git commit -m "feat(dsh-bridge): real boot — wire ctx.appExit and core services"
+```
+
+The commit subject is descriptive; the body should record the discovery of each peer's API surface and the order of registration.
+
+- [ ] **Step 7: Update Task 12 in this plan**
+
+The integration test in Task 12 currently only asserts the `dsh.openChat` command is registered. Append a new step to Task 12 requiring the integration test to also call `bootDsh()` and assert `DshHandle.ctx.sessions` is a non-null service. Otherwise the integration test will continue to be a sham pass.
+
+- [ ] **Step 8: Commit the plan update**
+
+```bash
+git add docs/superpowers/plans/2026-08-16-m1-foundation-streaming-chat.md
+git commit -m "docs(plan): require bootDsh() call in Task 12 integration test"
+```
+
+---
+
 ## Task 5: DSH bridge — events subscription with batched flush
 
 **Files:**
@@ -2177,6 +2334,7 @@ Create `tests/integration/smoke.test.ts`:
 ```ts
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { bootDsh, type DshHandle } from "../../src/dsh-bridge/boot";
 
 suite("DeepSeek Harness extension", () => {
   test("dsh.openChat command is registered", async () => {
@@ -2191,6 +2349,32 @@ suite("DeepSeek Harness extension", () => {
     await vscode.commands.executeCommand("dsh.openChat");
     // The panel title comes from the createWebviewPanel call in panel.ts.
     // M1 only asserts the command ran without throwing.
+  });
+
+  // **Task 4.5 follow-up (required, not optional):** the integration test
+  // must also exercise the real boot path through `bootDsh()` and assert
+  // the resulting DSH handle exposes a live `ctx.sessions` service. This
+  // is the integration-level counterpart to the unit-level real-boot
+  // test added in Task 4.5; together they ensure the M1 extension host
+  // can actually mount the headless runtime end-to-end inside a real
+  // VS Code, not just register a command. Without this assertion the
+  // integration suite would be a sham pass that the first real user
+  // would catch on `dsh.openChat`.
+  test("bootDsh() mounts the headless runtime and exposes ctx.sessions", async () => {
+    const handle: DshHandle = await bootDsh({ profile: "headless" });
+    try {
+      assert.ok(handle, "bootDsh() must return a DshHandle");
+      assert.ok(
+        (handle.ctx as { sessions?: unknown }).sessions,
+        "DshHandle.ctx.sessions must be a non-null service after real boot",
+      );
+      assert.ok(
+        (handle.ctx as { agents?: unknown }).agents,
+        "DshHandle.ctx.agents must be a non-null service after real boot",
+      );
+    } finally {
+      await handle.dispose();
+    }
   });
 });
 ```
@@ -2216,7 +2400,7 @@ cd D:\Code\deepseek\vscode-deepseek
 pnpm run test:integration
 ```
 
-Expected: a real VS Code window is downloaded on first run; the test activates the extension; both assertions pass. Output ends with `2 passing`.
+Expected: a real VS Code window is downloaded on first run; the test activates the extension; all three assertions pass. Output ends with `3 passing`.
 
 - [ ] **Step 6: Commit**
 
