@@ -1,3 +1,5 @@
 {
-  "dsh.openChat.title": "DeepSeek Harness: Open Chat"
+  "dsh.openChat.title": "DeepSeek Harness: Open Chat",
+  "dsh.container.title": "DeepSeek Harness",
+  "dsh.chatView.name": "Chat"
 }

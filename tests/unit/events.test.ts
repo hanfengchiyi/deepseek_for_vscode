@@ -92,4 +92,133 @@ describe("subscribeDshEvents", () => {
     await new Promise((r) => setTimeout(r, 25));
     expect(sink).not.toHaveBeenCalled();
   });
+
+  // Dispatch one raw `session/event` and return the single mapped
+  // WebviewEvent from the next flush.
+  async function dispatch(
+    event: { type: string; data?: unknown },
+  ): Promise<unknown> {
+    const { ctx, listeners } = makeCtx();
+    const sink = vi.fn();
+    const sub = subscribeDshEvents(ctx, sink, { flushIntervalMs: 5 });
+    listeners.forEach((l) => l({ id: "sess-1" }, event as any));
+    await new Promise((r) => setTimeout(r, 20));
+    sub.close();
+    expect(sink).toHaveBeenCalledTimes(1);
+    return sink.mock.calls[0][0][0];
+  }
+
+  it("maps reasoning-delta chunks to stream.chunk thinking", async () => {
+    const ev = await dispatch({
+      type: "assistant/chunk",
+      data: { turn: 2, step: 1, chunk: { type: "reasoning-delta", text: "hmm" } },
+    });
+    expect(ev).toEqual({
+      v: 1,
+      type: "stream.chunk",
+      sessionId: "sess-1",
+      messageId: "step-2-1",
+      delta: "",
+      thinking: "hmm",
+    });
+  });
+
+  it("maps tool/call to tool.call", async () => {
+    const ev = await dispatch({
+      type: "tool/call",
+      data: { turn: 1, step: 1, callId: "c1", name: "bash", arguments: '{"cmd":"ls"}' },
+    });
+    expect(ev).toEqual({
+      v: 1,
+      type: "tool.call",
+      sessionId: "sess-1",
+      messageId: "step-1-1",
+      callId: "c1",
+      name: "bash",
+      arguments: '{"cmd":"ls"}',
+    });
+  });
+
+  it("maps tool/result to tool.result with flattened text", async () => {
+    const ev = await dispatch({
+      type: "tool/result",
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          source: { kind: "tool", callId: "c1" },
+          content: [{ content: [{ type: "text", text: "file.txt" }] }],
+        },
+      },
+    });
+    expect(ev).toEqual({
+      v: 1,
+      type: "tool.result",
+      sessionId: "sess-1",
+      messageId: "step-1-1",
+      callId: "c1",
+      ok: true,
+      content: "file.txt",
+    });
+  });
+
+  it("maps tool/result with error identity to ok=false", async () => {
+    const ev = await dispatch({
+      type: "tool/result",
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          source: { kind: "tool", callId: "c1" },
+          content: [{ content: [], isError: true }],
+        },
+        error: { name: "ToolError", code: "E_FAIL" },
+      },
+    });
+    expect(ev).toMatchObject({ type: "tool.result", ok: false, content: "ToolError: E_FAIL" });
+  });
+
+  it("maps assistant/message with usage to message.usage", async () => {
+    const ev = await dispatch({
+      type: "assistant/message",
+      data: {
+        turn: 1,
+        step: 1,
+        message: {},
+        usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 3, cacheReadTokens: 8 },
+      },
+    });
+    expect(ev).toEqual({
+      v: 1,
+      type: "message.usage",
+      sessionId: "sess-1",
+      messageId: "step-1-1",
+      usage: { inputTokens: 10, outputTokens: 5, reasoningTokens: 3, cacheReadTokens: 8 },
+    });
+  });
+
+  it("maps turn/end to turn.end with the reason kind", async () => {
+    const ev = await dispatch({
+      type: "turn/end",
+      data: { turn: 1, reason: { kind: "completed" } },
+    });
+    expect(ev).toEqual({ v: 1, type: "turn.end", sessionId: "sess-1", reason: "completed" });
+  });
+
+  it("maps turn/end error reasons to turn.end with the failure detail", async () => {
+    const ev = await dispatch({
+      type: "turn/end",
+      data: {
+        turn: 1,
+        reason: { kind: "error", error: { message: "invalid API key", code: "INVALID_CREDENTIAL" } },
+      },
+    });
+    expect(ev).toEqual({
+      v: 1,
+      type: "turn.end",
+      sessionId: "sess-1",
+      reason: "error",
+      error: "invalid API key",
+    });
+  });
 });

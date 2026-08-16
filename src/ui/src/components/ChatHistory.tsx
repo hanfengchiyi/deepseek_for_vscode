@@ -8,6 +8,20 @@ export const ChatHistory: React.FC = () => {
   useEffect(() => {
     ref.current?.scrollTo({ top: ref.current.scrollHeight });
   }, [messages]);
+
+  if (messages.length === 0) {
+    return (
+      <div className="dsh-history">
+        <div className="dsh-empty">
+          <div className="dsh-empty-title">DeepSeek Harness</div>
+          <div className="dsh-empty-hint">
+            Ask a question to start. Tool calls, thinking and token usage show up inline.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="dsh-history" ref={ref}>
       {messages.map((m) => (

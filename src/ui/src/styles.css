@@ -4,6 +4,9 @@
   --dsh-accent: var(--vscode-button-background);
   --dsh-accent-fg: var(--vscode-button-foreground);
   --dsh-border: var(--vscode-panel-border);
+  --dsh-user-bg: color-mix(in srgb, var(--vscode-button-background) 16%, transparent);
+  --dsh-card-bg: color-mix(in srgb, var(--vscode-editor-foreground) 5%, transparent);
+  --dsh-error: var(--vscode-errorForeground);
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   color: var(--dsh-fg);
@@ -11,52 +14,231 @@
 }
 
 .dsh-app {
-  padding: 16px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  height: 100vh;
-  box-sizing: border-box;
-}
-
-.dsh-app h1 {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.dsh-app {
-  padding: 0;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
   height: 100vh;
 }
+
+/* ── Header ─────────────────────────────────────────────── */
 
 .dsh-header {
-  padding: 8px 16px;
+  padding: 10px 14px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.65;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dsh-header-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.dsh-header-button {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.dsh-header-button:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.2));
+}
+
+/* ── Session history panel ──────────────────────────────── */
+
+.dsh-sessions {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dsh-sessions-empty {
+  opacity: 0.55;
+  font-size: 12px;
+  padding: 16px 8px;
+  text-align: center;
+}
+
+.dsh-session-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dsh-session-row:hover {
+  background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.12));
+}
+
+.dsh-session-row.dsh-session-active {
+  background: var(--vscode-list-activeSelectionBackground, rgba(0, 120, 215, 0.25));
+}
+
+.dsh-session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.dsh-session-time {
+  flex-shrink: 0;
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+/* ── Model bar ──────────────────────────────────────────── */
+
+.dsh-modelbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 8px;
   border-bottom: 1px solid var(--dsh-border);
+  font-size: 11px;
+}
+
+.dsh-modelbar select {
+  appearance: none;
+  background: var(--dsh-card-bg);
+  color: var(--dsh-fg);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  max-width: 45%;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.dsh-modelbar select:hover,
+.dsh-modelbar select:focus-visible {
+  border-color: var(--dsh-border);
+  outline: none;
+}
+
+.dsh-context-meter {
+  margin-left: auto;
+  opacity: 0.55;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.dsh-key-button {
+  appearance: none;
+  background: transparent;
+  color: var(--dsh-accent);
+  border: 1px solid var(--dsh-accent);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+
+.dsh-key-button:hover {
+  opacity: 0.85;
+}
+
+.dsh-key-button.dsh-key-set {
+  color: var(--dsh-fg);
+  border-color: var(--dsh-border);
+  opacity: 0.65;
+}
+
+/* Right-align the key button when the context meter is absent. */
+.dsh-modelbar > .dsh-key-button:last-child {
+  margin-left: auto;
+}
+
+.dsh-context-meter ~ .dsh-key-button {
+  margin-left: 0;
+}
+
+/* ── History ────────────────────────────────────────────── */
+
+.dsh-history {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dsh-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  opacity: 0.45;
+  text-align: center;
+  padding: 24px;
+}
+
+.dsh-empty-title {
+  font-size: 13px;
   font-weight: 600;
 }
 
-.dsh-history {
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.dsh-empty-hint {
+  font-size: 12px;
+}
+
+/* ── Messages ───────────────────────────────────────────── */
+
+@keyframes dsh-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .dsh-message {
-  border: 1px solid var(--dsh-border);
-  border-radius: 6px;
-  padding: 8px 12px;
+  animation: dsh-rise 0.18s ease;
+  line-height: 1.55;
 }
 
-.dsh-message-role {
-  font-size: 11px;
-  text-transform: uppercase;
-  opacity: 0.6;
-  margin-bottom: 4px;
+.dsh-message-user {
+  align-self: flex-end;
+  max-width: 88%;
+  background: var(--dsh-user-bg);
+  border-radius: 14px 14px 4px 14px;
+  padding: 7px 12px;
+}
+
+.dsh-message-assistant,
+.dsh-message-system {
+  align-self: stretch;
+  padding: 2px 2px 4px;
 }
 
 .dsh-message-content {
@@ -64,44 +246,422 @@
   word-break: break-word;
 }
 
+/* ── Markdown (assistant bubbles) ───────────────────────── */
+
+.dsh-markdown {
+  white-space: normal;
+}
+
+.dsh-markdown > :first-child {
+  margin-top: 0;
+}
+
+.dsh-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.dsh-markdown p,
+.dsh-markdown ul,
+.dsh-markdown ol,
+.dsh-markdown pre,
+.dsh-markdown blockquote,
+.dsh-markdown table {
+  margin: 6px 0;
+}
+
+.dsh-markdown h1,
+.dsh-markdown h2,
+.dsh-markdown h3,
+.dsh-markdown h4 {
+  margin: 10px 0 4px;
+  font-size: 1.05em;
+  line-height: 1.35;
+}
+
+.dsh-markdown ul,
+.dsh-markdown ol {
+  padding-left: 20px;
+}
+
+.dsh-markdown li + li {
+  margin-top: 2px;
+}
+
+.dsh-markdown code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.92em;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.dsh-markdown pre {
+  padding: 8px 10px;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: pre;
+  word-break: normal;
+}
+
+.dsh-markdown pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.dsh-markdown a {
+  color: var(--vscode-textLink-foreground, var(--dsh-accent));
+}
+
+.dsh-markdown blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--dsh-border);
+  opacity: 0.85;
+}
+
+.dsh-markdown table {
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+
+.dsh-markdown th,
+.dsh-markdown td {
+  border: 1px solid var(--dsh-border);
+  padding: 3px 8px;
+  text-align: left;
+}
+
+.dsh-markdown hr {
+  border: none;
+  border-top: 1px solid var(--dsh-border);
+  margin: 8px 0;
+}
+
 .dsh-cursor {
   display: inline-block;
-  animation: dsh-blink 1s steps(2, end) infinite;
-  margin-left: 2px;
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--dsh-accent);
+  vertical-align: baseline;
+  animation: dsh-pulse 1s ease-in-out infinite;
 }
 
-@keyframes dsh-blink {
-  to { opacity: 0; }
+@keyframes dsh-pulse {
+  50% {
+    opacity: 0.25;
+  }
 }
+
+/* ── Thinking ───────────────────────────────────────────── */
+
+.dsh-thinking {
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.dsh-thinking summary {
+  cursor: pointer;
+  font-size: 11px;
+  opacity: 0.55;
+  list-style: none;
+}
+
+.dsh-thinking summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 5px;
+  transition: transform 0.15s ease;
+}
+
+.dsh-thinking[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.dsh-thinking-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  opacity: 0.7;
+  font-style: italic;
+  padding: 4px 0 2px 10px;
+  border-left: 2px solid var(--dsh-border);
+  margin-top: 4px;
+}
+
+/* ── Tool cards ─────────────────────────────────────────── */
+
+.dsh-tool {
+  margin-top: 8px;
+  background: var(--dsh-card-bg);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.dsh-tool summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  list-style: none;
+}
+
+.dsh-tool summary::before {
+  content: "▸";
+  font-size: 10px;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+}
+
+.dsh-tool[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.dsh-tool-name {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11.5px;
+}
+
+.dsh-tool-state {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  opacity: 0.65;
+  font-size: 11px;
+}
+
+.dsh-tool-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dsh-tool-running .dsh-tool-state {
+  color: var(--dsh-accent);
+}
+
+.dsh-tool-running .dsh-tool-state::before {
+  animation: dsh-pulse 1s ease-in-out infinite;
+}
+
+.dsh-tool-ok .dsh-tool-state {
+  color: var(--vscode-testing-iconPassed, #3fb950);
+}
+
+.dsh-tool-error .dsh-tool-state {
+  color: var(--dsh-error);
+}
+
+.dsh-tool-block {
+  margin: 6px 0 2px;
+  padding: 6px 9px;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ── Usage ──────────────────────────────────────────────── */
+
+.dsh-usage {
+  margin-top: 5px;
+  font-size: 10.5px;
+  opacity: 0.45;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Error banner ───────────────────────────────────────── */
+
+.dsh-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-inputValidation-errorBorder, var(--dsh-error));
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--dsh-card-bg);
+  color: var(--dsh-fg);
+  font-size: 12px;
+}
+
+.dsh-error-text {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dsh-error-dismiss {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 4px;
+  opacity: 0.7;
+}
+
+.dsh-error-dismiss:hover {
+  opacity: 1;
+}
+
+/* ── Question card (ask_user) ───────────────────────────── */
+
+.dsh-question {
+  margin: 0 12px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsh-accent);
+  border-radius: 12px;
+  background: var(--dsh-card-bg);
+  animation: dsh-rise 0.18s ease;
+}
+
+.dsh-question-text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dsh-question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dsh-question-option {
+  background: transparent;
+  color: var(--dsh-accent);
+  border: 1px solid var(--dsh-accent);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.dsh-question-option:hover {
+  opacity: 0.85;
+  background: color-mix(in srgb, var(--dsh-accent) 12%, transparent);
+}
+
+.dsh-question-freeform {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dsh-question-freeform input {
+  flex: 1;
+  background: var(--vscode-input-background, transparent);
+  color: var(--vscode-input-foreground, var(--dsh-fg));
+  border: 1px solid var(--dsh-border);
+  border-radius: 8px;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.dsh-question-freeform input:focus {
+  border-color: var(--dsh-accent);
+}
+
+.dsh-question-freeform button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: var(--dsh-accent);
+  color: var(--dsh-accent-fg);
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dsh-question-freeform button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Input ──────────────────────────────────────────────── */
 
 .dsh-input {
+  padding: 10px 12px 12px;
+}
+
+.dsh-input-box {
   display: flex;
+  align-items: flex-end;
   gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--dsh-border);
+  background: var(--dsh-card-bg);
+  border: 1px solid var(--dsh-border);
+  border-radius: 12px;
+  padding: 6px 6px 6px 12px;
+  transition: border-color 0.15s ease;
+}
+
+.dsh-input-box:focus-within {
+  border-color: var(--dsh-accent);
 }
 
 .dsh-input textarea {
   flex: 1;
-  resize: vertical;
-  background: var(--dsh-bg);
+  resize: none;
+  background: transparent;
   color: var(--dsh-fg);
-  border: 1px solid var(--dsh-border);
-  border-radius: 4px;
-  padding: 6px 8px;
+  border: none;
+  outline: none;
+  padding: 4px 0;
   font: inherit;
+  line-height: 1.45;
+  max-height: 30vh;
 }
 
 .dsh-input button {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
   background: var(--dsh-accent);
   color: var(--dsh-accent-fg);
-  border: none;
-  border-radius: 4px;
-  padding: 0 12px;
+  font-size: 14px;
+  line-height: 1;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease;
 }
 
 .dsh-input button:disabled {
-  opacity: 0.5;
+  opacity: 0.35;
   cursor: not-allowed;
+}
+
+.dsh-input button.dsh-stop {
+  background: transparent;
+  color: var(--dsh-error);
+  border: 1px solid var(--vscode-inputValidation-errorBorder, var(--dsh-error));
+  font-size: 11px;
 }

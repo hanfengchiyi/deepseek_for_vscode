@@ -9,14 +9,47 @@
     "vscode": "^1.95.0",
     "node": ">=20"
   },
-  "categories": ["AI", "Chat", "Programming Languages"],
-  "keywords": ["deepseek", "agent", "harness", "dsh"],
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "deepseek",
+    "agent",
+    "harness",
+    "dsh"
+  ],
   "main": "./dist/extension/extension.js",
-  "activationEvents": ["onCommand:dsh.openChat"],
+  "activationEvents": [
+    "onCommand:dsh.openChat",
+    "onView:dsh.chatView"
+  ],
   "contributes": {
     "commands": [
-      { "command": "dsh.openChat", "title": "DeepSeek Harness: Open Chat" }
-    ]
+      {
+        "command": "dsh.openChat",
+        "title": "%dsh.openChat.title%"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dsh",
+          "title": "%dsh.container.title%",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "dsh": [
+        {
+          "id": "dsh.chatView",
+          "name": "%dsh.chatView.name%",
+          "type": "webview"
+        }
+      ]
+    }
   },
   "scripts": {
     "build:host": "node esbuild.config.mjs",
@@ -25,6 +58,7 @@
     "watch:host": "node esbuild.config.mjs --watch",
     "watch:webview": "pnpm --filter @dsh/webview run dev",
     "test:unit": "vitest run",
+    "test:webview": "vitest run --config tests/webview/vitest.config.ts",
     "test:integration": "vscode-test",
     "test": "pnpm run test:unit && pnpm run test:integration",
     "package": "pnpm run build && vsce package",
@@ -35,18 +69,27 @@
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent": "0.1.0-rc.6",
     "@deepseek-ai/dsh-agent-default-model": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-agent-loop": "0.1.0-rc.6",
     "@deepseek-ai/dsh-base": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-credentials-local": "0.1.0-rc.6",
     "@deepseek-ai/dsh-headless": "0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-session": "0.1.0-rc.6"
+    "@deepseek-ai/dsh-llm-deepseek": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/vscode": "^1.95.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
     "@vscode/test-electron": "^2.4",
     "@vscode/vsce": "^2.24",
     "esbuild": "^0.20",
     "eslint": "^8.57",
+    "jsdom": "^30.0.1",
     "prettier": "^3",
     "typescript": "^5.4",
     "vitest": "^1.6"

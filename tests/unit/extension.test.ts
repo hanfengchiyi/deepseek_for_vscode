@@ -7,6 +7,7 @@ vi.mock("vscode", () => ({
   },
   window: {
     showInformationMessage: vi.fn(),
+    registerWebviewViewProvider: vi.fn(() => ({ dispose: vi.fn() })),
   },
   ExtensionContext: class {},
 }));
@@ -16,10 +17,20 @@ import * as vscode from "vscode";
 
 describe("extension entry", () => {
   it("registers the dsh.openChat command on activate", () => {
-    activate({ subscriptions: [] } as vscode.ExtensionContext);
+    activate({ subscriptions: [] } as unknown as vscode.ExtensionContext);
     expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
       "dsh.openChat",
       expect.any(Function),
+    );
+  });
+
+  it("registers the sidebar chat view provider on activate", () => {
+    activate({ subscriptions: [] } as unknown as vscode.ExtensionContext);
+    expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledWith(
+      "dsh.chatView",
+      expect.anything(),
+      // Keeps the webview DOM (chat state) alive across sidebar hides.
+      { webviewOptions: { retainContextWhenHidden: true } },
     );
   });
 

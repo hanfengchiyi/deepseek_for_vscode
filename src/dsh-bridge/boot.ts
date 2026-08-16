@@ -1,49 +1,64 @@
 /**
- * Thin Cordis wrapper around `@deepseek-ai/dsh-headless`.
+ * Cordis wrapper that boots the DSH core services this extension needs.
  *
- * The real `@deepseek-ai/dsh-headless@0.1.0-rc.6` exports a Cordis `apply` plugin
- * (not a `createHeadlessApp` factory). The `apply` plugin requires:
+ * We deliberately do NOT mount `@deepseek-ai/dsh-headless`: that plugin is
+ * the one-shot CLI driver — on mount it creates an agent and runs
+ * `config.task` to completion. Passing the profile name as the task made
+ * every view open auto-run a bogus "headless" prompt against the
+ * workspace. This host drives agents itself through `ctx.agents` /
+ * `ctx.sessions`, so boot here only registers services:
  *
- *   1. a host-provided `ctx.appExit` hook (synchronously read at mount), and
- *   2. three core services — `ctx.agents`, `ctx.agentDefaultModel`,
- *      `ctx.sessions` — to be available before the headless tree mounts.
+ *   1. `LlmRuntime`            (registers `ctx.llm`)
+ *   2. `dsh-llm-deepseek`      (owns the `deepseek-official` provider route;
+ *      its key resolves per request from `$DEEPSEEK_API_KEY` via the
+ *      credentials service, endpoint defaults to https://api.deepseek.com)
+ *   3. `AgentRegistry`         (registers `ctx.agents`)
+ *   4. `AgentDefaultModelConfig` (registers `ctx.agentDefaultModel`)
+ *   5. `SessionStore`          (registers `ctx.sessions`, in-memory)
+ *   6. `SessionPersistenceJsonl` (registers `ctx.sessionPersistence`,
+ *      append-only JSONL logs under `$DSH_HOME/sessions`, grouped into
+ *      per-project directories keyed off the session's `meta.cwd`)
+ *   7. agent driver stack: `SystemPrompt`, `ToolRuntime`, `AgentLoop`
+ *      (`AgentLoop` injects `["agents","sessions","llm","tools",
+ *      "systemPrompt"]`; without it, creating an agent throws "no agent
+ *      factory registered")
+ *   8. `LocalCredentialProvider` (`$DSH_HOME/.credentials.yaml`, 0600)
+ *   9. workspace awareness (`./workspace`): prompt section + read-only
+ *      tools, when `BootOptions.workspace` is given
+ *  10. `ask_user` tool (`./ask-user`): the model can pause mid-turn and
+ *      ask the user a question; the webview answer becomes the tool
+ *      result. Registered here; the webview-bound event sink is
+ *      installed by the view layer via `setAskUserSink`.
  *
- * This wrapper:
- *
- *   1. creates a Cordis root `Context`,
- *   2. registers `ctx.appExit` as a no-op host hook (so the launcher does
- *      not call `process.exit` from unit tests; pass `appExit` in
- *      {@link BootOptions} to override),
- *   3. registers the four core Cordis plugins — `LlmRuntime`,
- *      `AgentRegistry`, `SessionStore`, `AgentDefaultModelConfig` — in an
- *      order that satisfies the headless `inject` list,
- *   4. mounts the headless plugin via `ctx.plugin(headless, { task: profile })`,
- *   5. returns a {@link DshHandle} whose `dispose()` is idempotent and
- *      tears down the headless fiber.
- *
- * The headless `apply` is the real upstream plugin; nothing here is mocked
- * at the dsh-headless boundary, so a real boot is exercised end-to-end.
+ * The returned {@link DshHandle} disposes every plugin fiber in reverse
+ * mount order; `dispose()` is idempotent.
  */
+import * as os from "node:os";
+import * as path from "node:path";
 import { Context, type Fiber } from "@deepseek-ai/cordis";
-import { apply as headlessApply, type Config as HeadlessConfig } from "@deepseek-ai/dsh-headless";
 import AgentRegistry from "@deepseek-ai/dsh-agent";
 import AgentDefaultModelConfig from "@deepseek-ai/dsh-agent-default-model";
+import AgentLoop from "@deepseek-ai/dsh-agent-loop";
+import LocalCredentialProvider from "@deepseek-ai/dsh-credentials-local";
 import SessionStore from "@deepseek-ai/dsh-session";
+import SessionPersistenceJsonl from "@deepseek-ai/dsh-session-persistence-jsonl";
 import LlmRuntime from "@deepseek-ai/dsh-llm";
+import * as DeepSeekLlm from "@deepseek-ai/dsh-llm-deepseek";
+import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
+import ToolRuntime from "@deepseek-ai/dsh-tools";
+import { registerAskUser } from "./ask-user";
+import { registerWorkspace, type WorkspaceInfo } from "./workspace";
 
 export interface BootOptions {
-  /** DSH profile. The headless plugin's `apply` is the only one wired up
-   *  in M1; "web" is reserved for a later milestone that bundles the Web
-   *  UI. */
-  profile?: "headless" | "web";
-  /** Optional model override. The headless plugin reads its model from
-   *  the injected `agentDefaultModel` service, so this is reserved for
-   *  M2+ and ignored here. */
+  /** Optional model override for the default selection new agents boot
+   *  with. Defaults to `deepseek-v4-flash` on `deepseek-official`. */
   model?: string;
-  /** The host-provided exit hook the headless plugin reads at mount via
-   *  `ctx.get("appExit")`. Defaults to a no-op so unit tests do not
-   *  call `process.exit`; a real launcher passes `process.exit`. */
-  appExit?: (code: number) => void;
+  /** The VS Code workspace folder the agent should be aware of. When
+   *  provided, a system-prompt section and the read-only workspace tools
+   *  (`list_files`/`read_file`/`search_files`) are registered, and new
+   *  sessions are stamped with this folder as `meta.cwd` so persistence
+   *  groups them under the project. Omit for a plain context-free chat. */
+  workspace?: WorkspaceInfo;
 }
 
 /** Minimal Cordis ctx surface we depend on. Deliberately narrow so the
@@ -52,107 +67,106 @@ export interface DshCtx {
   [key: string]: unknown;
 }
 
-/** Headless application handle. `start`/`stop` are no-op lifecycle
- *  hooks kept for symmetry with the real boot path; the plugin is
- *  registered during `bootDsh`. */
-export interface HeadlessApp {
-  start(): Promise<void>;
-  stop(): Promise<void>;
-  /** The Cordis context the headless plugin runs in. */
-  ctx: DshCtx;
-  /** Profile name this handle was booted with. */
-  profile: string;
-}
-
 export interface DshHandle {
   /** Typed view of the Cordis context's services. */
   ctx: DshCtx;
-  /** The Cordis fiber for the headless plugin; `dispose()` unloads it. */
-  fiber: Fiber;
-  /** Lifecycle facade kept for symmetry with the M1 test contract. */
-  app: HeadlessApp;
   /** Whether `dispose()` has been called. */
   disposed: boolean;
   /** Idempotent disposer; safe to call multiple times. */
   dispose(): Promise<void>;
 }
 
-/** Boot a headless DSH runtime and return a handle.
+/** `$DSH_HOME`, defaulting to `~/.dsh` — the same resolution the
+ *  credentials provider documents for `$DSH_HOME/.credentials.yaml`. */
+export function dshHome(): string {
+  const fromEnv = process.env.DSH_HOME;
+  return path.resolve(
+    fromEnv && fromEnv.trim().length > 0 ? fromEnv : path.join(os.homedir(), ".dsh"),
+  );
+}
+
+/** Boot the DSH core services and return a handle.
  *
- *  Registers the host hook + core services in this order:
- *    1. `ctx.appExit`           (host hook, must exist before headless mounts)
- *    2. `LlmRuntime`            (registers `ctx.llm`)
- *    3. `AgentRegistry`         (registers `ctx.agents`)
- *    4. `AgentDefaultModelConfig` (registers `ctx.agentDefaultModel`)
- *    5. `SessionStore`          (registers `ctx.sessions`)
- *    6. `headless.apply`        (mounts the one-shot driver)
+ *  Nothing here starts a turn on its own: agents are created lazily by
+ *  the bridge when the webview sends the first message of a session.
  *
- *  @param opts - {@link BootOptions}; all fields are optional and default to
- *                a headless profile, no model override, and a no-op
- *                `appExit` (so tests do not call `process.exit`).
+ *  @param opts - {@link BootOptions}; all fields are optional.
  *  @returns a {@link DshHandle} whose `dispose()` is idempotent.
  */
 export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
-  const profile = opts.profile ?? "headless";
-  const appExit = opts.appExit ?? (() => {
-    /* no-op default: the headless plugin's `apply` reads `ctx.appExit`
-     * synchronously and later calls it on task completion. Unit tests
-     * rely on the no-op so a real launcher's `process.exit` is not
-     * invoked during boot verification. */
-  });
   const ctx = new Context();
-
-  // 1. Host hook — must be provided before `headless.apply` mounts,
-  //    because the headless `apply` reads `ctx.get("appExit")`
-  //    synchronously and throws otherwise.
-  ctx.provide("appExit", appExit);
-
-  // 2. Core services. `headless.apply` declares
-  //    `inject: ["agentDefaultModel", "agents", "sessions"]`, so
-  //    Cordis blocks headless mount until all three are provided.
-  //    Order here is not enforced by Cordis (each plugin is loaded
-  //    eagerly) but mirrors the headless `inject` list to keep the
-  //    wiring readable.
-  await ctx.plugin(LlmRuntime);
-  await ctx.plugin(AgentRegistry);
-  await ctx.plugin(AgentDefaultModelConfig, {
-    provider: opts.model ? "deepseek-official" : "deepseek-official",
-    model: opts.model ?? "deepseek-v4-flash",
-  });
-  await ctx.plugin(SessionStore);
-
-  // 3. Mount the headless plugin. The plugin's `Config` schema is
-  //    `{ task: string }`; we pass the profile name as the task so
-  //    the requested profile is observable through the handle.
-  const fiber: Fiber = await ctx.plugin(headlessApply, {
-    task: profile,
-  } as HeadlessConfig);
-
-  let disposed = false;
-  const app: HeadlessApp = {
-    async start() {
-      // No-op: by the time `ctx.plugin(...)` resolves, the plugin is
-      // already mounted. Kept for symmetry with `stop` and for future
-      // re-mount scenarios.
-    },
-    async stop() {
-      // Soft pause hook; disposal is handled by `dispose()` below.
-    },
-    ctx: ctx as unknown as DshCtx,
-    profile,
+  const fibers: Fiber[] = [];
+  const mount = async (plugin: unknown, config?: unknown) => {
+    fibers.push(await ctx.plugin(plugin as never, config as never));
   };
 
+  // Core services. Each `ctx.plugin` resolves once the plugin is mounted;
+  // the returned fibers are disposed in reverse order by the handle.
+  await mount(LlmRuntime);
+  // The native DeepSeek adapter owns the `deepseek-official` provider
+  // route (inject: ["llm"]). Without it the route does not exist and
+  // every agent request fails downstream. The advertised catalog is
+  // deepseek-v4-flash / deepseek-v4-pro.
+  await mount(DeepSeekLlm);
+  await mount(AgentRegistry);
+  await mount(AgentDefaultModelConfig, {
+    provider: "deepseek-official",
+    model: opts.model ?? "deepseek-v4-flash",
+  });
+  await mount(SessionStore);
+
+  // Durable session logs (`ctx.sessionPersistence`, inject: ["sessions"]).
+  // The backend subscribes to `session/event` and writes append-only JSONL
+  // per session, grouped under per-project directories derived from the
+  // session's `meta.cwd`; `list()` reads headers only. Must mount before
+  // any agent is created so no turn escapes persistence.
+  await mount(SessionPersistenceJsonl, {
+    root: path.join(dshHome(), "sessions"),
+  });
+
+  // Agent driver stack. `AgentRegistry.create()` requires a registered
+  // agent factory ("no agent factory registered" otherwise); the concrete
+  // factory is `AgentLoop`, which injects ["agents", "sessions", "llm",
+  // "tools", "systemPrompt"] — so SystemPrompt and ToolRuntime must be
+  // mounted alongside it. All three configs default cleanly for a plain
+  // chat deployment (no declarative agents, empty tool registry).
+  await mount(SystemPrompt);
+  await mount(ToolRuntime);
+  await mount(AgentLoop);
+
+  // Interactive Q&A: `ask_user` lets the model pause mid-turn and ask
+  // the user a question; the webview answer becomes the tool result.
+  // Must run after ToolRuntime is mounted (it writes to `ctx.tools`).
+  const disposeAskUser = registerAskUser(ctx as unknown as DshCtx);
+
+  // Workspace awareness. Must run after ToolRuntime and SystemPrompt are
+  // mounted (registerWorkspace writes to both services). The returned
+  // disposer unregisters the prompt section and tools.
+  const disposeWorkspace = opts.workspace
+    ? registerWorkspace(ctx as unknown as DshCtx, opts.workspace)
+    : undefined;
+
+  // Credential store (`$DSH_HOME/.credentials.yaml`, file-backed, 0600).
+  // The DeepSeek adapter resolves `$DEEPSEEK_API_KEY` through the
+  // `credentials` service first (process env still wins inside the
+  // service's layering), so mounting this lets the user set the key from
+  // the webview instead of relaunching VS Code with an env var.
+  await mount(LocalCredentialProvider);
+
+  let disposed = false;
   return {
     ctx: ctx as unknown as DshCtx,
-    fiber,
-    app,
     get disposed() {
       return disposed;
     },
     async dispose() {
       if (disposed) return;
       disposed = true;
-      await fiber.dispose();
+      disposeWorkspace?.();
+      disposeAskUser();
+      for (const fiber of fibers.reverse()) {
+        await fiber.dispose();
+      }
     },
   };
 }

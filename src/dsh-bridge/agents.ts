@@ -26,6 +26,7 @@ import { getOrCreateSession } from "./sessions";
  *  richer; we only need the inbox method. */
 interface AgentLike {
   followup?: (message: { id: string; role: "user"; content: unknown[]; source: { kind: "user" } }) => void;
+  cancel?: (cause: { kind: "user" }) => void;
 }
 
 /**
@@ -63,4 +64,28 @@ export async function pushUserMessage(
       source: { kind: "user" },
     }) as never,
   );
+}
+
+/**
+ * Cancel the active turn of the session's agent, if any. Mirrors the
+ * feature-detect posture of `pushUserMessage`: a missing `cancel`
+ * method (future upstream rename) degrades to a warn-log instead of
+ * crashing the host. Cancelling an idle agent is a no-op upstream.
+ *
+ * The cause `{ kind: "user" }` matches `AgentCancelCause` in
+ * `dsh-session` (`{ kind: 'user' | 'parent' | 'hook' | 'disposed' }`).
+ */
+export async function cancelTurn(ctx: DshCtx, sessionId: string): Promise<void> {
+  const agents = ctx.agents as { get?: (id: string) => unknown } | undefined;
+  const agent = agents?.get?.(sessionId) as AgentLike | undefined;
+  if (!agent) return; // No live agent for this session — nothing to cancel.
+  if (typeof agent.cancel !== "function") {
+    console.warn(
+      "[dsh-bridge] agent.cancel is not available on the live agent; " +
+        "the cancel request was dropped.",
+      { sessionId },
+    );
+    return;
+  }
+  agent.cancel({ kind: "user" });
 }
