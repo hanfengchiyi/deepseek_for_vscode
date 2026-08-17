@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { ApprovalCard } from "./components/ApprovalCard";
 import { ChatHistory } from "./components/ChatHistory";
 import { ChatInput } from "./components/ChatInput";
 import { ModelBar } from "./components/ModelBar";
@@ -46,6 +47,7 @@ export const App: React.FC = () => {
           // A turn that ends while a question is parked (cancel, error)
           // will never answer it; drop the card.
           store.setQuestion(null);
+          store.setApproval(null);
           if (ev.error) {
             store.setError(ev.error);
           }
@@ -56,6 +58,16 @@ export const App: React.FC = () => {
             question: ev.question,
             options: ev.options,
           });
+          break;
+        case "approval.request":
+          store.setApproval({
+            approvalId: ev.approvalId,
+            toolName: ev.toolName,
+            reason: ev.reason,
+          });
+          break;
+        case "permission.state":
+          store.setPresetState(ev.preset);
           break;
         case "plugin.catalog":
           store.setPlugins(ev.plugins);
@@ -129,6 +141,7 @@ export const App: React.FC = () => {
       ) : null}
       {historyOpen ? <SessionList /> : pluginsOpen ? <PluginPanel /> : <ChatHistory />}
       <QuestionCard />
+      <ApprovalCard />
       <ChatInput />
     </div>
   );

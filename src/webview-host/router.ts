@@ -3,10 +3,12 @@ import type { HostCommand, WebviewEvent } from "../shared/protocol";
 import type { DshHandle } from "../dsh-bridge/boot";
 import type { PluginInfo } from "../dsh-bridge/plugins";
 import { cancelTurn, pushUserMessage } from "../dsh-bridge/agents";
+import { answerApproval, cancelSessionApprovals } from "../dsh-bridge/approvals";
 import { answerQuestion, cancelSessionQuestions } from "../dsh-bridge/ask-user";
 import { setApiKey } from "../dsh-bridge/credentials";
 import { listHistory, loadTranscript } from "../dsh-bridge/history";
 import { getModelCatalog, selectModel } from "../dsh-bridge/models";
+import { getPreset, setPreset } from "../dsh-bridge/permissions";
 import { resumeSession } from "../dsh-bridge/sessions";
 
 /** Shape of the webview view we need; keeps the router testable without
@@ -68,13 +70,25 @@ export function installRouter(
           await pushUserMessage(ctx, msg.sessionId, msg.text);
           break;
         case "chat.cancel":
-          // Reject parked ask_user questions first so their tool
-          // executions unwind even if the upstream abort lags.
+          // Reject parked ask_user questions and approval cards first
+          // so their tool executions unwind even if the upstream abort
+          // lags.
           cancelSessionQuestions(msg.sessionId);
+          cancelSessionApprovals(msg.sessionId);
           await cancelTurn(ctx, msg.sessionId);
           break;
         case "question.answer":
           answerQuestion(msg.questionId, msg.answer);
+          break;
+        case "approval.answer":
+          answerApproval(msg.approvalId, msg.allow);
+          break;
+        case "permission.set":
+          await view.webview.postMessage({
+            v: 1,
+            type: "permission.state",
+            preset: setPreset(msg.preset),
+          });
           break;
         case "model.list":
           await view.webview.postMessage(await getModelCatalog(ctx));
@@ -118,6 +132,11 @@ export function installRouter(
             v: 1,
             type: "plugin.catalog",
             plugins: plugins ?? [],
+          });
+          await view.webview.postMessage({
+            v: 1,
+            type: "permission.state",
+            preset: getPreset(),
           });
           break;
         case "plugin.list":

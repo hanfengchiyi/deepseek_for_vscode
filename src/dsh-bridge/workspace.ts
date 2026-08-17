@@ -59,8 +59,10 @@ interface ToolsLike {
   register(definition: unknown): () => void;
 }
 
-/** Resolve `p` against the workspace root, rejecting escapes. */
-function resolveInside(root: string, p: string | undefined): string {
+/** Resolve `p` against the workspace root, rejecting escapes. Exported
+ *  for the write tools (./write-tools.ts) which share the same
+ *  confinement rule. */
+export function resolveInside(root: string, p: string | undefined): string {
   const resolved = path.resolve(root, p ?? ".");
   if (resolved !== root && !resolved.startsWith(root + path.sep)) {
     throw new Error(`path escapes the workspace root: ${p}`);

@@ -659,6 +659,33 @@
   cursor: not-allowed;
 }
 
+/* ── Approval card (permission gate) ────────────────────── */
+
+.dsh-approval {
+  border-color: var(--vscode-inputValidation-warningBorder, var(--dsh-accent));
+}
+
+.dsh-approval-tool {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11.5px;
+  background: color-mix(in srgb, var(--dsh-fg) 8%, transparent);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.dsh-approval-reason {
+  opacity: 0.75;
+}
+
+.dsh-approval-reject {
+  color: var(--dsh-error);
+  border-color: var(--vscode-inputValidation-errorBorder, var(--dsh-error));
+}
+
+.dsh-approval-reject:hover {
+  background: color-mix(in srgb, var(--dsh-error) 12%, transparent);
+}
+
 /* ── Input ──────────────────────────────────────────────── */
 
 .dsh-input {

@@ -33,6 +33,11 @@
  *      `BootOptions.pluginsDir` (convention: `$DSH_HOME/plugins`) are
  *      imported and mounted after every core service; per-plugin
  *      failures are isolated and reported on `DshHandle.plugins`.
+ *  12. permissions: `dsh-user-approval` (`ctx.approval`) + the preset
+ *      gate (`./permissions.ts`, read-only / workspace-write /
+ *      full-access on `tools/pre-execute`) + the webview approval
+ *      answerer (`./approvals.ts`) + the mutating tools it gates
+ *      (`./write-tools.ts`: `write_file`, `run_command`).
  *
  * The returned {@link DshHandle} disposes every plugin fiber in reverse
  * mount order; `dispose()` is idempotent.
@@ -50,8 +55,12 @@ import LlmRuntime from "@deepseek-ai/dsh-llm";
 import * as DeepSeekLlm from "@deepseek-ai/dsh-llm-deepseek";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
+import UserApproval from "@deepseek-ai/dsh-user-approval";
+import { registerApprovalAnswerer } from "./approvals";
 import { registerAskUser } from "./ask-user";
+import { registerPermissionGate } from "./permissions";
 import { registerWorkspace, type WorkspaceInfo } from "./workspace";
+import { registerWriteTools } from "./write-tools";
 import { loadUserPlugins, type PluginInfo } from "./plugins";
 
 export interface BootOptions {
@@ -148,10 +157,22 @@ export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
   await mount(ToolRuntime);
   await mount(AgentLoop);
 
+  // Approval service (`ctx.approval`): resolves `ask` pre-execute
+  // decisions through the `approval/request` waterfall, with per-session
+  // policy + audit logging. Default policy `ask` delegates to answerers.
+  await mount(UserApproval);
+
   // Interactive Q&A: `ask_user` lets the model pause mid-turn and ask
   // the user a question; the webview answer becomes the tool result.
   // Must run after ToolRuntime is mounted (it writes to `ctx.tools`).
   const disposeAskUser = registerAskUser(ctx as unknown as DshCtx);
+
+  // Permission gate (read-only / workspace-write / full-access) on
+  // `tools/pre-execute`, the webview answerer for the asks it raises,
+  // and the mutating tools it gates. All three after ToolRuntime.
+  const disposeGate = registerPermissionGate(ctx as unknown as DshCtx);
+  const disposeAnswerer = registerApprovalAnswerer(ctx as unknown as DshCtx);
+  const disposeWriteTools = registerWriteTools(ctx as unknown as DshCtx);
 
   // Workspace awareness. Must run after ToolRuntime and SystemPrompt are
   // mounted (registerWorkspace writes to both services). The returned
@@ -186,6 +207,9 @@ export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
       disposed = true;
       await userPlugins.dispose();
       disposeWorkspace?.();
+      disposeWriteTools();
+      disposeAnswerer();
+      disposeGate();
       disposeAskUser();
       for (const fiber of fibers.reverse()) {
         await fiber.dispose();

@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
 import { installRouter } from "./router";
+import type { WebviewEvent } from "../shared/protocol";
+import { setApprovalSink } from "../dsh-bridge/approvals";
 import { setAskUserSink } from "../dsh-bridge/ask-user";
 import { bootDsh, dshHome, type DshHandle } from "../dsh-bridge/boot";
 import { subscribeDshEvents } from "../dsh-bridge/events";
@@ -84,6 +86,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     });
     view.onDidDispose(() => {
       setAskUserSink(undefined);
+      setApprovalSink(undefined);
       routerSub.dispose();
     });
 
@@ -109,9 +112,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         void view.webview.postMessage(ev);
       }
     });
-    // `ask_user` executions park until the webview answers; the sink
-    // carries their `question.request` events into this view.
-    setAskUserSink((ev) => void view.webview.postMessage(ev));
+    // `ask_user` executions and approval requests park until the
+    // webview answers; the sinks carry their events into this view.
+    const webviewSink = (ev: WebviewEvent) => void view.webview.postMessage(ev);
+    setAskUserSink(webviewSink);
+    setApprovalSink(webviewSink);
     view.onDidDispose(() => {
       eventSub.close();
     });

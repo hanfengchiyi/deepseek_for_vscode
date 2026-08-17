@@ -96,6 +96,21 @@ export interface PluginDirOpen {
   type: "plugin.openDir";
 }
 
+/** The user's decision on an `approval.request` for a mutating tool. */
+export interface ApprovalAnswer {
+  v: 1;
+  type: "approval.answer";
+  approvalId: string;
+  allow: boolean;
+}
+
+/** Switch the permission preset (read-only / workspace-write / full-access). */
+export interface PermissionSet {
+  v: 1;
+  type: "permission.set";
+  preset: string;
+}
+
 export type HostCommand =
   | ChatSend
   | ChatCancel
@@ -108,7 +123,9 @@ export type HostCommand =
   | SessionNew
   | QuestionAnswer
   | PluginListRequest
-  | PluginDirOpen;
+  | PluginDirOpen
+  | ApprovalAnswer
+  | PermissionSet;
 
 // 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ Outbound (host 鈫?webview) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
@@ -226,6 +243,27 @@ export interface PluginCatalog {
   }>;
 }
 
+/** A mutating tool call is paused awaiting the user's decision. The
+ *  webview shows an approval card; the answer returns via
+ *  `approval.answer`. */
+export interface ApprovalRequestEvent {
+  v: 1;
+  type: "approval.request";
+  sessionId: string;
+  /** Pairs this request with its `approval.answer`. */
+  approvalId: string;
+  toolName: string;
+  reason?: string;
+}
+
+/** Current permission preset; sent on `ready` and after every
+ *  `permission.set`. */
+export interface PermissionState {
+  v: 1;
+  type: "permission.state";
+  preset: string;
+}
+
 export interface ModelCatalog {
   v: 1;
   type: "model.catalog";  /** Registered provider routes and their advertised models. A provider
@@ -300,4 +338,6 @@ export type WebviewEvent =
   | ModelCatalog
   | SessionHistory
   | SessionTranscript
-  | PluginCatalog;
+  | PluginCatalog
+  | ApprovalRequestEvent
+  | PermissionState;

@@ -59,6 +59,13 @@ export interface PluginEntry {
   error?: string;
 }
 
+/** A live approval request for a mutating tool call. */
+export interface PendingApproval {
+  approvalId: string;
+  toolName: string;
+  reason?: string;
+}
+
 /** Fresh session id for a new conversation. The agent is created lazily
  *  host-side on the first `chat.send`, so minting an id here is all a
  *  "new chat" needs. */
@@ -93,6 +100,10 @@ interface ChatState {
   pluginsOpen: boolean;
   /** Live `ask_user` question awaiting an answer; null when none. */
   question: PendingQuestion | null;
+  /** Current permission preset; null until the first permission.state. */
+  preset: string | null;
+  /** Live approval request awaiting a decision; null when none. */
+  approval: PendingApproval | null;
   setInput: (s: string) => void;
   setError: (message: string | null) => void;
   setBusy: (busy: boolean) => void;
@@ -109,6 +120,9 @@ interface ChatState {
   togglePlugins: () => void;
   /** Show or clear the `ask_user` question card. */
   setQuestion: (question: PendingQuestion | null) => void;
+  setPresetState: (preset: string) => void;
+  /** Show or clear the tool-approval card. */
+  setApproval: (approval: PendingApproval | null) => void;
   /** Replace the view with a (resumed) session's transcript. */
   loadTranscript: (sessionId: string, messages: ChatMessage[]) => void;
   /** Reset to a fresh conversation. */
@@ -158,6 +172,8 @@ export const useChatStore = create<ChatState>((set) => ({
   plugins: null,
   pluginsOpen: false,
   question: null,
+  preset: null,
+  approval: null,
   setInput: (input) => set({ input }),
   setError: (error) => set({ error, ...(error ? { busy: false } : null) }),
   setBusy: (busy) => set({ busy }),
@@ -168,6 +184,8 @@ export const useChatStore = create<ChatState>((set) => ({
   setPlugins: (plugins) => set({ plugins }),
   togglePlugins: () => set((s) => ({ pluginsOpen: !s.pluginsOpen, historyOpen: false })),
   setQuestion: (question) => set({ question }),
+  setPresetState: (preset) => set({ preset }),
+  setApproval: (approval) => set({ approval }),
   loadTranscript: (sessionId, messages) =>
     set({
       sessionId,

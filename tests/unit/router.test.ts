@@ -172,7 +172,7 @@ describe("router", () => {
     sub.dispose();
   });
 
-  it("answers ready with the catalog, the session history, and the plugin catalog", async () => {
+  it("answers ready with the catalog, the session history, the plugin catalog, and the permission state", async () => {
     const { panel, sent } = makePanel();
     const { ctx } = makeCtx();
     const plugins = [{ id: "demo.js", path: "/plugins/demo.js", status: "loaded" as const }];
@@ -183,6 +183,7 @@ describe("router", () => {
       "model.catalog",
       "session.history",
       "plugin.catalog",
+      "permission.state",
     ]);
     const history = sent[1] as Extract<WebviewEvent, { type: "session.history" }>;
     // Only this workspace's sessions are listed (cwd filter).
@@ -190,6 +191,7 @@ describe("router", () => {
     expect(history.sessions[0].title).toBe("old question");
     const catalog = sent[2] as Extract<WebviewEvent, { type: "plugin.catalog" }>;
     expect(catalog.plugins).toEqual(plugins);
+    expect(sent[3]).toMatchObject({ type: "permission.state", preset: "workspace-write" });
     sub.dispose();
   });
 

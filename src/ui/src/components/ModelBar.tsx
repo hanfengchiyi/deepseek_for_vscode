@@ -17,6 +17,7 @@ export const ModelBar: React.FC = () => {
   const lastUsage = useChatStore((s) => s.lastUsage);
   const hasCredential = useChatStore((s) => s.hasCredential);
   const sessionId = useChatStore((s) => s.sessionId);
+  const preset = useChatStore((s) => s.preset);
 
   if (!selection) return null;
 
@@ -80,6 +81,19 @@ export const ModelBar: React.FC = () => {
               {e.name}
             </option>
           ))}
+        </select>
+      ) : null}
+
+      {preset !== null ? (
+        <select
+          className="dsh-preset-select"
+          value={preset}
+          onChange={(e) => send({ v: 1, type: "permission.set", preset: e.target.value })}
+          title="Permission preset — what mutating tools (write_file, run_command) may do"
+        >
+          <option value="read-only">Read Only</option>
+          <option value="workspace-write">Workspace Write</option>
+          <option value="full-access">Full Access</option>
         </select>
       ) : null}
 
