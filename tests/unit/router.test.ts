@@ -90,6 +90,47 @@ describe("router", () => {
     sub.dispose();
   });
 
+  it("inlines chat.send attachments ahead of the user's text", async () => {
+    const { panel } = makePanel();
+    const { ctx, followup } = makeCtx();
+    const sub = installRouter(panel as any, { ctx });
+    const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
+    await handler({
+      v: 1,
+      type: "chat.send",
+      sessionId: "s1",
+      text: "what does this do?",
+      attachments: [{ name: "a.ts", content: "const a = 1;" }],
+    });
+    const message = followup.mock.calls[0][0];
+    const text = message.content[0].text as string;
+    expect(text).toContain("File: a.ts");
+    expect(text).toContain("```\nconst a = 1;\n```");
+    expect(text.endsWith("what does this do?")).toBe(true);
+    sub.dispose();
+  });
+
+  it("answers file.pick with the host-picked files", async () => {
+    const { panel, sent } = makePanel();
+    const { ctx } = makeCtx();
+    const sub = installRouter(panel as any, { ctx }, {
+      pickFiles: async () => ({
+        files: [{ name: "a.ts", content: "const a = 1;" }],
+        skipped: ["photo.png"],
+      }),
+    });
+    const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
+    await handler({ v: 1, type: "file.pick" });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toEqual({
+      v: 1,
+      type: "file.picked",
+      files: [{ name: "a.ts", content: "const a = 1;" }],
+      skipped: ["photo.png"],
+    });
+    sub.dispose();
+  });
+
   it("routes chat.cancel to the live agent's cancel", async () => {
     const { panel } = makePanel();
     const { ctx, cancel } = makeCtx();

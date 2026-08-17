@@ -19,6 +19,9 @@ export interface ChatSend {
   type: "chat.send";
   sessionId: string;
   text: string;
+  /** Text file attachments picked via `file.pick`; the host inlines
+   *  their contents ahead of `text` before the agent sees them. */
+  attachments?: Array<{ name: string; content: string }>;
 }
 
 export interface ChatCancel {
@@ -111,6 +114,13 @@ export interface PermissionSet {
   preset: string;
 }
 
+/** Ask the host to show a native file picker and read the chosen text
+ *  files; the result returns via `file.picked`. */
+export interface FilePick {
+  v: 1;
+  type: "file.pick";
+}
+
 export type HostCommand =
   | ChatSend
   | ChatCancel
@@ -125,7 +135,8 @@ export type HostCommand =
   | PluginListRequest
   | PluginDirOpen
   | ApprovalAnswer
-  | PermissionSet;
+  | PermissionSet
+  | FilePick;
 
 // 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ Outbound (host 鈫?webview) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
@@ -264,6 +275,15 @@ export interface PermissionState {
   preset: string;
 }
 
+/** Answer to `file.pick`: the text files the user chose, read host-side.
+ *  Binary or oversize files are named in `skipped`. */
+export interface FilePicked {
+  v: 1;
+  type: "file.picked";
+  files: Array<{ name: string; content: string }>;
+  skipped?: string[];
+}
+
 export interface ModelCatalog {
   v: 1;
   type: "model.catalog";  /** Registered provider routes and their advertised models. A provider
@@ -340,4 +360,5 @@ export type WebviewEvent =
   | SessionTranscript
   | PluginCatalog
   | ApprovalRequestEvent
-  | PermissionState;
+  | PermissionState
+  | FilePicked;

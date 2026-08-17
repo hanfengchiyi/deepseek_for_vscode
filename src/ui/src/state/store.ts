@@ -66,6 +66,12 @@ export interface PendingApproval {
   reason?: string;
 }
 
+/** A text file attached to the next outgoing message. */
+export interface Attachment {
+  name: string;
+  content: string;
+}
+
 /** Fresh session id for a new conversation. The agent is created lazily
  *  host-side on the first `chat.send`, so minting an id here is all a
  *  "new chat" needs. */
@@ -104,6 +110,8 @@ interface ChatState {
   preset: string | null;
   /** Live approval request awaiting a decision; null when none. */
   approval: PendingApproval | null;
+  /** Files attached to the next outgoing message. */
+  attachments: Attachment[];
   setInput: (s: string) => void;
   setError: (message: string | null) => void;
   setBusy: (busy: boolean) => void;
@@ -123,6 +131,10 @@ interface ChatState {
   setPresetState: (preset: string) => void;
   /** Show or clear the tool-approval card. */
   setApproval: (approval: PendingApproval | null) => void;
+  /** Merge picked files into the attachment list (deduped by name). */
+  addAttachments: (files: Attachment[]) => void;
+  removeAttachment: (name: string) => void;
+  clearAttachments: () => void;
   /** Replace the view with a (resumed) session's transcript. */
   loadTranscript: (sessionId: string, messages: ChatMessage[]) => void;
   /** Reset to a fresh conversation. */
@@ -174,6 +186,7 @@ export const useChatStore = create<ChatState>((set) => ({
   question: null,
   preset: null,
   approval: null,
+  attachments: [],
   setInput: (input) => set({ input }),
   setError: (error) => set({ error, ...(error ? { busy: false } : null) }),
   setBusy: (busy) => set({ busy }),
@@ -186,6 +199,16 @@ export const useChatStore = create<ChatState>((set) => ({
   setQuestion: (question) => set({ question }),
   setPresetState: (preset) => set({ preset }),
   setApproval: (approval) => set({ approval }),
+  addAttachments: (files) =>
+    set((s) => ({
+      attachments: [
+        ...s.attachments,
+        ...files.filter((f) => !s.attachments.some((a) => a.name === f.name)),
+      ],
+    })),
+  removeAttachment: (name) =>
+    set((s) => ({ attachments: s.attachments.filter((a) => a.name !== name) })),
+  clearAttachments: () => set({ attachments: [] }),
   loadTranscript: (sessionId, messages) =>
     set({
       sessionId,

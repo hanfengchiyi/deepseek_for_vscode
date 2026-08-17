@@ -9,6 +9,9 @@ import { subscribeDshEvents } from "../dsh-bridge/events";
 
 export const CHAT_VIEW_TYPE = "dsh.chatView";
 
+/** Per-file cap for chat attachments; larger files land in `skipped`. */
+const MAX_ATTACHMENT_BYTES = 64 * 1024;
+
 /**
  * Provides the chat webview as a sidebar view (contributed under the
  * `dsh` view container). Users can drag it to the secondary sidebar or
@@ -82,6 +85,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           .then(() =>
             vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(pluginsDir)),
           );
+      },
+      // Native file picker for chat attachments. Only text files make
+      // it back — binary or oversize picks are named in `skipped`.
+      pickFiles: async () => {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectFiles: true,
+          canSelectMany: true,
+          canSelectFolders: false,
+          title: vscode.l10n.t("Attach files"),
+        });
+        const files: Array<{ name: string; content: string }> = [];
+        const skipped: string[] = [];
+        for (const uri of uris ?? []) {
+          const name = path.basename(uri.fsPath);
+          try {
+            const bytes = await vscode.workspace.fs.readFile(uri);
+            if (bytes.length > MAX_ATTACHMENT_BYTES || bytes.includes(0)) {
+              skipped.push(name);
+              continue;
+            }
+            files.push({ name, content: new TextDecoder().decode(bytes) });
+          } catch {
+            skipped.push(name);
+          }
+        }
+        return { files, ...(skipped.length ? { skipped } : null) };
       },
     });
     view.onDidDispose(() => {

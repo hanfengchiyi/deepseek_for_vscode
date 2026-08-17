@@ -177,4 +177,42 @@ describe("webview app smoke", () => {
     });
     expect(container.querySelector(".dsh-question")).toBeNull();
   });
+
+  it("opens the slash-command menu and attaches picked files", async () => {
+    const { container } = await renderApp();
+    const textarea = container.querySelector(".dsh-input textarea") as HTMLTextAreaElement;
+
+    // Typing "/" opens the filtered command menu.
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(textarea, "/hi");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const menu = container.querySelector(".dsh-command-menu");
+    expect(menu).not.toBeNull();
+    expect(menu!.textContent).toContain("/history");
+    expect(menu!.textContent).not.toContain("/plugins");
+
+    // Picked files become removable chips.
+    await emit({
+      v: 1,
+      type: "file.picked",
+      files: [{ name: "a.ts", content: "const a = 1;" }],
+    });
+    const chip = container.querySelector(".dsh-chip");
+    expect(chip?.textContent).toContain("a.ts");
+    await act(async () => {
+      (chip!.querySelector(".dsh-chip-remove") as HTMLButtonElement).click();
+    });
+    expect(container.querySelector(".dsh-chip")).toBeNull();
+
+    // The mode chip appears once the preset is known.
+    await emit({ v: 1, type: "permission.state", preset: "workspace-write" });
+    const mode = container.querySelector(".dsh-mode-select") as HTMLSelectElement;
+    expect(mode).not.toBeNull();
+    expect(mode.value).toBe("workspace-write");
+  });
 });

@@ -40,10 +40,16 @@ export interface RouterDsh {
 /** Host capabilities the router needs beyond the webview channel.
  *  `promptSecret` shows a native (host-side) secret input so key
  *  material never transits the webview DOM. `openPluginsDir` reveals
- *  the plugins directory in the OS file manager. */
+ *  the plugins directory in the OS file manager. `pickFiles` shows a
+ *  native file picker and reads the chosen text files; binary or
+ *  oversize picks are named in `skipped`. */
 export interface RouterDeps {
   promptSecret?: (title: string) => Promise<string | undefined>;
   openPluginsDir?: () => void;
+  pickFiles?: () => Promise<{
+    files: Array<{ name: string; content: string }>;
+    skipped?: string[];
+  }>;
 }
 
 export function installRouter(
@@ -66,9 +72,16 @@ export function installRouter(
       // rejects here and surfaces as a protocol error event below.
       const { ctx, plugins } = await dsh;
       switch (msg.type) {
-        case "chat.send":
-          await pushUserMessage(ctx, msg.sessionId, msg.text);
+        case "chat.send": {
+          // Inline attachments ahead of the user's text so the agent
+          // sees file contents as ordinary message context.
+          const parts = (msg.attachments ?? []).map(
+            (a) => `File: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``,
+          );
+          parts.push(msg.text);
+          await pushUserMessage(ctx, msg.sessionId, parts.join("\n\n"));
           break;
+        }
         case "chat.cancel":
           // Reject parked ask_user questions and approval cards first
           // so their tool executions unwind even if the upstream abort
@@ -149,6 +162,16 @@ export function installRouter(
         case "plugin.openDir":
           deps.openPluginsDir?.();
           break;
+        case "file.pick": {
+          const picked = (await deps.pickFiles?.()) ?? { files: [] };
+          await view.webview.postMessage({
+            v: 1,
+            type: "file.picked",
+            files: picked.files,
+            ...(picked.skipped?.length ? { skipped: picked.skipped } : null),
+          });
+          break;
+        }
         case "session.list":
           await view.webview.postMessage({
             v: 1,

@@ -69,6 +69,12 @@ export const App: React.FC = () => {
         case "permission.state":
           store.setPresetState(ev.preset);
           break;
+        case "file.picked":
+          store.addAttachments(ev.files);
+          if (ev.skipped && ev.skipped.length > 0) {
+            store.setError(`Skipped non-text or oversize files: ${ev.skipped.join(", ")}`);
+          }
+          break;
         case "plugin.catalog":
           store.setPlugins(ev.plugins);
           break;

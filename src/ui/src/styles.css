@@ -693,13 +693,14 @@
 }
 
 .dsh-input-box {
+  position: relative;
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   background: var(--dsh-card-bg);
   border: 1px solid var(--dsh-border);
   border-radius: 12px;
-  padding: 6px 6px 6px 12px;
+  padding: 8px 8px 6px;
   transition: border-color 0.15s ease;
 }
 
@@ -708,19 +709,30 @@
 }
 
 .dsh-input textarea {
-  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
   resize: none;
   background: transparent;
   color: var(--dsh-fg);
   border: none;
   outline: none;
-  padding: 4px 0;
+  padding: 2px 4px;
   font: inherit;
   line-height: 1.45;
   max-height: 30vh;
 }
 
-.dsh-input button {
+.dsh-input-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dsh-input-toolbar-spacer {
+  flex: 1;
+}
+
+.dsh-input-toolbar > button {
   flex: none;
   width: 30px;
   height: 30px;
@@ -737,14 +749,137 @@
   transition: opacity 0.15s ease;
 }
 
-.dsh-input button:disabled {
+.dsh-input-toolbar > button:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 
-.dsh-input button.dsh-stop {
+.dsh-input-toolbar > button.dsh-stop {
   background: transparent;
   color: var(--dsh-error);
   border: 1px solid var(--vscode-inputValidation-errorBorder, var(--dsh-error));
   font-size: 11px;
+}
+
+.dsh-input-toolbar > button.dsh-icon-button {
+  background: transparent;
+  color: var(--dsh-fg);
+  border: 1px solid var(--dsh-border);
+  font-size: 13px;
+}
+
+.dsh-input-toolbar > button.dsh-icon-button:hover {
+  border-color: var(--dsh-accent);
+}
+
+.dsh-mode-select {
+  appearance: none;
+  background: transparent;
+  color: var(--dsh-fg);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.dsh-mode-select:hover,
+.dsh-mode-select:focus-visible {
+  border-color: var(--dsh-border);
+  outline: none;
+}
+
+/* Attachment chips above the textarea. */
+.dsh-attachment-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.dsh-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 70%;
+  border: 1px solid var(--dsh-border);
+  border-radius: 999px;
+  padding: 2px 4px 2px 10px;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dsh-chip-remove {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+}
+
+.dsh-chip-remove:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--dsh-fg) 12%, transparent);
+}
+
+/* Slash-command menu, floating above the input box. */
+.dsh-command-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 100%;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsh-card-bg);
+  border: 1px solid var(--dsh-border);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+  z-index: 10;
+}
+
+.dsh-command-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: var(--dsh-fg);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dsh-command-item:hover {
+  background: color-mix(in srgb, var(--dsh-accent) 12%, transparent);
+}
+
+.dsh-command-name {
+  flex: none;
+  color: var(--dsh-accent);
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.dsh-command-desc {
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
