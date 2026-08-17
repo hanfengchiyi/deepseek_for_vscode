@@ -24,11 +24,16 @@ const config = {
   entryPoints: ["src/extension.ts"],
   bundle: true,
   outfile: "dist/extension/extension.js",
-  // Only `vscode` stays external. The @deepseek-ai/* runtime deps are
-  // ESM-only ("type": "module"); the extension host loads this bundle as
-  // CJS, so leaving them external would fail activation with
-  // ERR_REQUIRE_ESM. They must be bundled in.
-  external: ["vscode"],
+  // `vscode` stays external, and so does `koffi`: it is a CJS native module
+  // whose loader must resolve `@koromix/koffi-<platform>` from its real
+  // install location. Bundling it broke that lookup (the native package is
+  // not hoisted to the root node_modules), which crashed session-log
+  // materialization on Windows with "Cannot read properties of undefined
+  // (reading 'load')". The @deepseek-ai/* runtime deps are ESM-only
+  // ("type": "module"); the extension host loads this bundle as CJS, so
+  // leaving them external would fail activation with ERR_REQUIRE_ESM. They
+  // must be bundled in.
+  external: ["vscode", "koffi"],
   format: "cjs",
   platform: "node",
   target: "node20",

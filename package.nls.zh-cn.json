@@ -1,5 +1,12 @@
 {
   "dsh.openChat.title": "DeepSeek Harness: 打开聊天",
   "dsh.container.title": "DeepSeek Harness",
-  "dsh.chatView.name": "聊天"
+  "dsh.chatView.name": "聊天",
+  "dsh.configuration.title": "DeepSeek Harness",
+  "dsh.llm.baseURL.description": "自定义模型 API 端点（兼容 OpenAI 的 `/chat/completions`），例如自建网关 `http://localhost:3010`。留空使用官方 `https://api.deepseek.com`。扩展启动时读取——修改后**重载窗口**生效。",
+  "dsh.llm.defaultModel.description": "新会话默认使用的模型。配置了自定义模型目录时，必须是 `dsh.llm.models` 中的一项。扩展启动时读取——修改后重载窗口生效。",
+  "dsh.llm.models.description": "模型选择器里显示的自定义模型目录（在 `settings.json` 中编辑）。留空使用内置 DeepSeek 目录（`deepseek-v4-flash` / `deepseek-v4-pro`）。扩展启动时读取——修改后重载窗口生效。",
+  "dsh.llm.models.id.description": "端点接受的模型 id。",
+  "dsh.llm.models.name.description": "模型选择器里的显示名。",
+  "dsh.llm.models.contextWindow.description": "输入+输出的最大上下文 token 数；用于上下文用量条。"
 }

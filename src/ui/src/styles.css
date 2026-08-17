@@ -303,6 +303,68 @@
   margin-left: 0;
 }
 
+/* ── Agent preset picker (header) ───────────────────────── */
+
+.dsh-preset-select {
+  appearance: none;
+  background: transparent;
+  color: var(--dsh-fg);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.dsh-preset-select:hover,
+.dsh-preset-select:focus-visible {
+  border-color: var(--dsh-border);
+  outline: none;
+}
+
+.dsh-preset-readonly {
+  font-size: 11px;
+  opacity: 0.55;
+  white-space: nowrap;
+  align-self: center;
+  padding: 2px 4px;
+}
+
+/* ── Session stats bar ──────────────────────────────────── */
+
+.dsh-statsbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--dsh-border);
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.dsh-statsbar-toggle {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.dsh-statsbar-toggle:hover {
+  opacity: 1;
+}
+
+.dsh-statsbar-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── History ────────────────────────────────────────────── */
 
 .dsh-history {

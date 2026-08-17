@@ -55,9 +55,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     // history panel permanently empty).
     const ws = vscode.workspace.workspaceFolders?.[0];
     const pluginsDir = path.join(dshHome(), "plugins");
+    // Provider settings (custom model API). Read once at boot; changing
+    // them takes effect after a window reload (noted in each setting's
+    // description).
+    const llmSettings = vscode.workspace.getConfiguration("dsh.llm");
+    const baseURL = (llmSettings.get<string>("baseURL") ?? "").trim();
+    const defaultModel = (llmSettings.get<string>("defaultModel") ?? "").trim();
+    const models = (llmSettings.get<unknown[]>("models") ?? []).filter(
+      (m): m is { id: string; name?: string; contextWindow?: number; maxTokens?: number } =>
+        typeof m === "object" && m !== null && typeof (m as { id?: unknown }).id === "string",
+    );
     this.booting ??= bootDsh({
       workspace: ws ? { root: ws.uri.fsPath, name: ws.name } : undefined,
       pluginsDir,
+      ...(defaultModel ? { model: defaultModel } : null),
+      ...(baseURL || models.length
+        ? {
+            llm: {
+              ...(baseURL ? { baseURL } : null),
+              ...(models.length ? { models } : null),
+            },
+          }
+        : null),
     });
     const routerDsh = this.booting.then((dsh) => ({
       ctx: dsh.ctx,
@@ -144,6 +163,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     try {
       dsh = await this.booting;
       this.dsh = dsh;
+      // Diagnostic breadcrumb for persistence issues: which home and
+      // workspace this host actually booted with (Extension Host output).
+      console.log(
+        `[dsh] booted; sessions root: ${path.join(dshHome(), "sessions")}; ` +
+          `workspace: ${ws?.uri.fsPath ?? "(none)"}`,
+        );
     } catch (err) {
       // Allow a later resolve (or view reload) to retry the boot.
       this.booting = undefined;

@@ -65,6 +65,9 @@ importers:
       '@deepseek-ai/dsh-user-approval':
         specifier: 0.1.0-rc.6
         version: 0.1.0-rc.6(dbdaba06c174c5e30e3a58edf3cc27a9)
+      koffi:
+        specifier: ^3.1.5
+        version: 3.1.5
     devDependencies:
       '@types/node':
         specifier: ^20

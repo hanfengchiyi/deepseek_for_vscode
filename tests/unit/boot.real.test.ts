@@ -52,4 +52,27 @@ describe("bootDsh (real stack, no headless driver)", () => {
       await handle.dispose();
     }
   }, 30000);
+
+  it("honors a custom model catalog and endpoint from BootOptions.llm", async () => {
+    // The `dsh.llm.*` VS Code settings land here via view.ts. A custom
+    // catalog replaces the built-in DeepSeek entries in the picker; no
+    // network is touched at boot, so a loopback URL is fine.
+    const handle = await bootDsh({
+      model: "grok-4",
+      llm: {
+        baseURL: "http://localhost:3010",
+        models: [{ id: "grok-4", name: "Grok 4", contextWindow: 256000, maxTokens: 8192 }],
+      },
+    });
+    try {
+      const llm = handle.ctx.llm as {
+        listModels(provider: string): Promise<Array<{ id: string; name: string }>>;
+      };
+      const models = await llm.listModels("deepseek-official");
+      expect(models.map((m) => m.id)).toEqual(["grok-4"]);
+      expect(models[0]!.name).toBe("Grok 4");
+    } finally {
+      await handle.dispose();
+    }
+  }, 30000);
 });

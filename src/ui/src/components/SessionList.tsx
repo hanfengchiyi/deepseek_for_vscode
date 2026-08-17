@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useChatStore } from "../state/store";
 import { send } from "../messages/client";
 
@@ -12,10 +12,17 @@ function formatTime(ts: number): string {
 }
 
 /** This workspace's persisted conversations, newest first. Clicking a
- *  row asks the host to resume the session and send its transcript. */
+ *  row asks the host to resume the session and send its transcript.
+ *  The list refetches every time the panel opens — sessions created
+ *  since the last fetch (e.g. the conversation just started) would
+ *  otherwise stay invisible until a window reload. */
 export const SessionList: React.FC = () => {
   const history = useChatStore((s) => s.history);
   const sessionId = useChatStore((s) => s.sessionId);
+
+  useEffect(() => {
+    send({ v: 1, type: "session.list" });
+  }, []);
 
   return (
     <div className="dsh-sessions">

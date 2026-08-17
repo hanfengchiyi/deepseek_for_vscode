@@ -10,7 +10,7 @@ import { dshHome } from "../dsh-bridge/boot";
 import { listHostCommands, runHostCommand } from "../dsh-bridge/commands";
 import { setApiKey } from "../dsh-bridge/credentials";
 import { findSessionLog } from "../dsh-bridge/export-log";
-import { listHistory, loadTranscript } from "../dsh-bridge/history";
+import { listHistory, loadSessionPreset, loadSessionStats, loadTranscript } from "../dsh-bridge/history";
 import { getModelCatalog, selectModel } from "../dsh-bridge/models";
 import { getPreset, setPreset } from "../dsh-bridge/permissions";
 import { readDisabledPlugins, setPluginEnabled } from "../dsh-bridge/plugin-config";
@@ -118,7 +118,7 @@ export function installRouter(
             (a) => `File: ${a.name}\n\`\`\`\n${a.content}\n\`\`\``,
           );
           parts.push(msg.text);
-          await pushUserMessage(ctx, msg.sessionId, parts.join("\n\n"));
+          await pushUserMessage(ctx, msg.sessionId, parts.join("\n\n"), msg.agentPreset);
           break;
         }
         case "chat.cancel":
@@ -290,11 +290,21 @@ export function installRouter(
           // Bring the persisted session back as a live agent (so the user
           // can continue it), then rebuild the view from its event log.
           await resumeSession(ctx, msg.sessionId);
+          const agentPreset = await loadSessionPreset(ctx, msg.sessionId);
           await view.webview.postMessage({
             v: 1,
             type: "session.transcript",
             sessionId: msg.sessionId,
+            ...(agentPreset ? { agentPreset } : null),
             messages: await loadTranscript(ctx, msg.sessionId),
+          });
+          // Recover the session's cumulative stats from the cold log so
+          // the stats bar matches what the live stream would have shown.
+          await view.webview.postMessage({
+            v: 1,
+            type: "session.stats",
+            sessionId: msg.sessionId,
+            stats: await loadSessionStats(ctx, msg.sessionId),
           });
           break;
         }

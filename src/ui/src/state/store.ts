@@ -1,5 +1,29 @@
 import { create } from "zustand";
-import type { PluginCatalogEntry } from "@shared/protocol";
+import type { PluginCatalogEntry, SessionStats } from "@shared/protocol";
+
+export type SessionStatsSnapshot = SessionStats["stats"];
+
+/** localStorage key for the agent preset chosen for the next new
+ *  conversation. */
+const PRESET_STORAGE_KEY = "dsh.agentPreset";
+/** localStorage key for the stats bar's collapsed state. */
+const STATS_COLLAPSED_KEY = "dsh.statsCollapsed";
+
+function readStorage(key: string): string | null {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    globalThis.localStorage?.setItem(key, value);
+  } catch {
+    /* storage unavailable (tests) — the in-memory value still applies */
+  }
+}
 
 export interface ToolCallItem {
   callId: string;
@@ -118,6 +142,15 @@ interface ChatState {
   approval: PendingApproval | null;
   /** Files attached to the next outgoing message. */
   attachments: Attachment[];
+  /** Agent preset of the current session. Editable only while the
+   *  conversation is empty (i.e. before the session is created); the
+   *  choice persists as the default for the next new conversation. */
+  agentPreset: string;
+  /** Cumulative session stats from the host; null until the first
+   *  `session.stats` event. */
+  stats: SessionStatsSnapshot | null;
+  /** Whether the stats bar is collapsed. */
+  statsCollapsed: boolean;
   setInput: (s: string) => void;
   setError: (message: string | null) => void;
   setBusy: (busy: boolean) => void;
@@ -146,8 +179,15 @@ interface ChatState {
   addAttachments: (files: Attachment[]) => void;
   removeAttachment: (name: string) => void;
   clearAttachments: () => void;
-  /** Replace the view with a (resumed) session's transcript. */
-  loadTranscript: (sessionId: string, messages: ChatMessage[]) => void;
+  /** Choose the agent preset for the next new conversation (persisted).
+   *  Has no effect on an ongoing session — the host ignores
+   *  `chat.send.agentPreset` once the session exists. */
+  setAgentPreset: (preset: string) => void;
+  setStats: (stats: SessionStatsSnapshot) => void;
+  toggleStatsCollapsed: () => void;
+  /** Replace the view with a (resumed) session's transcript. The
+   *  session's immutable preset comes along when the log header has it. */
+  loadTranscript: (sessionId: string, messages: ChatMessage[], agentPreset?: string) => void;
   /** Reset to a fresh conversation. */
   newSession: () => void;
   appendDelta: (messageId: string, delta: string) => void;
@@ -200,6 +240,9 @@ export const useChatStore = create<ChatState>((set) => ({
   preset: null,
   approval: null,
   attachments: [],
+  agentPreset: readStorage(PRESET_STORAGE_KEY) ?? "standard",
+  stats: null,
+  statsCollapsed: readStorage(STATS_COLLAPSED_KEY) === "1",
   setInput: (input) => set({ input }),
   setError: (error) => set({ error, ...(error ? { busy: false } : null) }),
   setBusy: (busy) => set({ busy }),
@@ -228,8 +271,19 @@ export const useChatStore = create<ChatState>((set) => ({
   removeAttachment: (name) =>
     set((s) => ({ attachments: s.attachments.filter((a) => a.name !== name) })),
   clearAttachments: () => set({ attachments: [] }),
-  loadTranscript: (sessionId, messages) =>
-    set({
+  setAgentPreset: (agentPreset) => {
+    writeStorage(PRESET_STORAGE_KEY, agentPreset);
+    set({ agentPreset });
+  },
+  setStats: (stats) => set({ stats }),
+  toggleStatsCollapsed: () =>
+    set((s) => {
+      const statsCollapsed = !s.statsCollapsed;
+      writeStorage(STATS_COLLAPSED_KEY, statsCollapsed ? "1" : "0");
+      return { statsCollapsed };
+    }),
+  loadTranscript: (sessionId, messages, agentPreset) =>
+    set((s) => ({
       sessionId,
       messages,
       busy: false,
@@ -237,7 +291,11 @@ export const useChatStore = create<ChatState>((set) => ({
       lastUsage: null,
       historyOpen: false,
       question: null,
-    }),
+      stats: null,
+      // A resumed session keeps the preset it was created with; logs
+      // that predate preset support keep the current default.
+      agentPreset: agentPreset ?? s.agentPreset,
+    })),
   newSession: () =>
     set({
       sessionId: mintSessionId(),
@@ -247,6 +305,9 @@ export const useChatStore = create<ChatState>((set) => ({
       lastUsage: null,
       historyOpen: false,
       question: null,
+      stats: null,
+      // agentPreset intentionally carries over: it is the default for
+      // the next conversation, editable until the first message.
     }),
   setCatalog: (catalog) =>
     set({

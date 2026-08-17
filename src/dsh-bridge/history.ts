@@ -17,6 +17,19 @@
  */
 import type { DshCtx } from "./boot";
 import { workspaceRoot } from "./workspace";
+import { SessionStatsTracker } from "./stats";
+import type { SessionStatsSnapshot } from "./stats";
+
+/** Normalize a workspace path for comparison. The persisted header cwd
+ *  and `workspaceRoot()` can differ in drive-letter case on Windows
+ *  (`D:\…` from `process.cwd()` vs `d:\…` from `vscode.Uri.fsPath`);
+ *  a strict `===` filter would then hide every past session. */
+function sameWorkspace(a: string | undefined, b: string): boolean {
+  if (!a) return false;
+  const norm = (p: string) =>
+    process.platform === "win32" ? p.replace(/\//g, "\\").toLowerCase() : p;
+  return norm(a) === norm(b);
+}
 
 /** One row of the history panel. */
 export interface HistoryEntry {
@@ -52,11 +65,17 @@ interface SessionHeaderLike {
   id: string;
   createdAt: number;
   cwd?: string;
+  /** The preset the session was created with (dsh-agent
+   *  `CreateSessionOptions.meta.agentPreset`), persisted in the log
+   *  header by the JSONL backend. Absent for older logs. */
+  agentPreset?: string;
 }
 
 interface SessionEventLike {
   type: string;
   seq?: number;
+  /** Unix epoch ms; drives the cold-log stats replay. */
+  time?: number;
   data?: unknown;
 }
 
@@ -100,7 +119,7 @@ export async function listHistory(ctx: DshCtx): Promise<HistoryEntry[]> {
   const svc = persistence(ctx);
   const root = workspaceRoot();
   const headers = (await svc.list!())
-    .filter((h) => h.cwd === root)
+    .filter((h) => sameWorkspace(h.cwd, root))
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, HISTORY_LIMIT);
   const entries: HistoryEntry[] = [];
@@ -130,6 +149,29 @@ export async function loadTranscript(
 ): Promise<TranscriptMessage[]> {
   const { events } = await persistence(ctx).inspect!(sessionId);
   return buildTranscript(events);
+}
+
+/** Read the preset a persisted session was created with, from its log
+ *  header. Returns undefined for logs that predate preset support. */
+export async function loadSessionPreset(
+  ctx: DshCtx,
+  sessionId: string,
+): Promise<string | undefined> {
+  const headers = (await persistence(ctx).list!()) ?? [];
+  return headers.find((h) => h.id === sessionId)?.agentPreset;
+}
+
+/** Replay a persisted session's event log through the stats tracker to
+ *  recover its cumulative stats (the cold-log counterpart of the live
+ *  aggregation in `events.ts`). */
+export async function loadSessionStats(
+  ctx: DshCtx,
+  sessionId: string,
+): Promise<SessionStatsSnapshot> {
+  const { events } = await persistence(ctx).inspect!(sessionId);
+  const tracker = new SessionStatsTracker();
+  for (const ev of events) tracker.observe(ev);
+  return tracker.snapshot();
 }
 
 /** Pure mapping from a session event log to webview messages. Exported

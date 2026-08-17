@@ -41,7 +41,7 @@ function makeCtx() {
     // workspaceRoot() fallback (process.cwd()) so the filter keeps it.
     sessionPersistence: {
       list: async () => [
-        { id: "s-old", createdAt: 1000, cwd: process.cwd() },
+        { id: "s-old", createdAt: 1000, cwd: process.cwd(), agentPreset: "minimal" },
         { id: "s-other-ws", createdAt: 2000, cwd: "/elsewhere" },
       ],
       inspect: async (id: string) => ({
@@ -264,11 +264,18 @@ describe("router", () => {
     const sub = installRouter(panel as any, { ctx });
     const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
     await handler({ v: 1, type: "session.open", sessionId: "s-old" });
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({
       type: "session.transcript",
       sessionId: "s-old",
+      agentPreset: "minimal",
       messages: [{ role: "user", content: "old question" }],
+    });
+    // The cold-log stats replay follows the transcript.
+    expect(sent[1]).toMatchObject({
+      type: "session.stats",
+      sessionId: "s-old",
+      stats: { turns: 0, steps: 0 },
     });
     sub.dispose();
   });

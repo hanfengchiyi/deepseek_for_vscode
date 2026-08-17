@@ -40,8 +40,12 @@ export async function pushUserMessage(
   ctx: DshCtx,
   sessionId: string,
   text: string,
+  agentPreset?: string,
 ): Promise<void> {
-  const session = await getOrCreateSession(ctx, sessionId);
+  // `agentPreset` only matters when this call CREATES the agent (first
+  // message of a fresh session); an existing session keeps the preset
+  // it was created with.
+  const session = await getOrCreateSession(ctx, sessionId, agentPreset);
   const agent = session.raw as AgentLike;
   if (typeof agent.followup !== "function") {
     // Fallback: log to host output. Integration test in Task 12 will

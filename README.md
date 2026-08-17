@@ -13,6 +13,28 @@ A VS Code extension that embeds the [DeepSeek Harness (DSH)](https://www.npmjs.c
 - **Tool call cards** — every tool invocation shows its arguments and result inline (running / done / failed states).
 - **User plugins** — drop your own Cordis plugins into `~/.dsh/plugins/`; manage them from the 🧩 panel (see below).
 - **Credential management** — set the DeepSeek API key from the UI; stored at `~/.dsh/.credentials.yaml` (file mode 0600), never transits the webview DOM.
+- **Agent presets** — pick the agent mode (标准 / PTC / 极简 / 创造) when starting a conversation; the choice is stamped into the session at creation and is immutable afterwards.
+- **Session stats bar** — cumulative turns / steps, LLM vs tool time, time-to-first-token, tok/s, cache hit rate, and token totals, updated live.
+
+## Settings
+
+Provider options live in the VS Code settings page (**File → Preferences → Settings**, search "dsh"), not the sidebar. All are read once at boot — run **Developer: Reload Window** after changing them.
+
+- `dsh.llm.baseURL` — custom model API endpoint (OpenAI-compatible `/chat/completions`), e.g. a self-hosted gateway like `http://localhost:3010`. Empty uses the official `https://api.deepseek.com`.
+- `dsh.llm.defaultModel` — the model new sessions start with (default `deepseek-v4-flash`).
+- `dsh.llm.models` — custom model catalog for the picker (edit in `settings.json`), e.g. `[{ "id": "grok-4", "name": "Grok 4", "contextWindow": 256000 }]`. Empty uses the built-in DeepSeek catalog.
+
+Example `settings.json` pointing the extension at a local gateway:
+
+```json
+{
+  "dsh.llm.baseURL": "http://localhost:3010",
+  "dsh.llm.defaultModel": "grok-4",
+  "dsh.llm.models": [{ "id": "grok-4", "name": "Grok 4", "contextWindow": 256000, "maxTokens": 8192 }]
+}
+```
+
+The API key set via **Set API key** is used for whatever endpoint `dsh.llm.baseURL` names.
 
 ## Architecture
 

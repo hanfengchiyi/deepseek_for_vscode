@@ -22,11 +22,15 @@
  *      unhandled types are dropped).
  *   3. Buffer events and flush them in batches on a 16ms interval
  *      (configurable via `options.flushIntervalMs`).
- *   4. Return an `EventSubscription` whose `close()` is idempotent and
+ *   4. Feed every raw envelope through a per-session
+ *      `SessionStatsTracker` (`./stats`) and batch the resulting
+ *      `session.stats` snapshots alongside the mapped events.
+ *   5. Return an `EventSubscription` whose `close()` is idempotent and
  *      tears down the listener + flush timer.
  */
 import type { DshCtx } from "./boot";
 import type { WebviewEvent } from "../shared/protocol";
+import { SessionStatsTracker } from "./stats";
 
 export interface EventSubscription {
   close(): void;
@@ -50,17 +54,32 @@ export interface SubscribeOptions {
 interface CordisLikeCtx {
   on(
     name: string,
-    listener: (session: { id: string }, event: { type: string; data: unknown }) => void,
+    listener: (
+      session: { id: string },
+      event: { type: string; time?: number; data?: unknown },
+    ) => void,
   ): () => boolean;
+}
+
+/** The slice of `ctx.sessions` (the in-memory `SessionStore`) used for
+ *  the durability checkpoint. `flush` dispatches `session/flush`, which
+ *  is what makes the persistence plugin drain its buffered events to
+ *  the JSONL log — without it a session's log holds only its header and
+ *  history rebuilds to nothing. */
+interface SessionStoreLike {
+  get?: (id: string) => unknown;
+  flush?: (session: unknown) => Promise<unknown>;
 }
 
 /**
  * The raw `SessionEvent` envelope as emitted by `ctx.sessions`. The
  * `data` field is the typed payload from `SessionEventMap[type]`;
- * `mapSessionEvent` consumes the subset the webview renders.
+ * `mapSessionEvent` consumes the subset the webview renders, while the
+ * stats tracker reads the envelope's `time` (Unix epoch ms).
  */
 interface RawSessionEvent {
   type: string;
+  time?: number;
   data?: unknown;
 }
 
@@ -85,11 +104,50 @@ export function subscribeDshEvents(
   // underlying fiber.
   const cordis = ctx as unknown as CordisLikeCtx;
   const subs: Array<() => boolean> = [];
+  // Per-session cumulative stats; fed from the raw stream ahead of the
+  // wire mapping so `turn/start` and friends (dropped for the chat UI)
+  // still contribute timing.
+  const statsTrackers = new Map<string, SessionStatsTracker>();
+  const sessions = (ctx as unknown as { sessions?: SessionStoreLike }).sessions;
   if (typeof cordis.on === "function") {
     subs.push(
       cordis.on("session/event", (session, raw) => {
         const mapped = mapSessionEvent(session.id, raw);
         if (mapped) buffer.push(mapped);
+        let tracker = statsTrackers.get(session.id);
+        if (!tracker) {
+          tracker = new SessionStatsTracker();
+          statsTrackers.set(session.id, tracker);
+        }
+        if (tracker.observe(raw)) {
+          buffer.push({
+            v: 1,
+            type: "session.stats",
+            sessionId: session.id,
+            stats: tracker.snapshot(),
+          });
+        }
+        // Durability checkpoint: the persistence plugin batches writes
+        // and drains on `session/flush` (or a graceful dispose the
+        // extension host rarely gets), so flush once per completed turn
+        // — the same call dsh-headless makes at the end of a run. A
+        // failure must not break the chat, but it must be LOUD: session
+        // history depends on this write.
+        if (raw.type === "turn/end") {
+          const live = sessions?.get?.(session.id);
+          if (live && typeof sessions?.flush === "function") {
+            void sessions.flush(live).catch((err: unknown) => {
+              const message = err instanceof Error ? err.message : String(err);
+              console.error("[dsh] session log flush failed:", err);
+              buffer.push({
+                v: 1,
+                type: "error",
+                message: `Session log write failed (history will be lost): ${message}`,
+                recoverable: true,
+              });
+            });
+          }
+        }
       }),
     );
   }

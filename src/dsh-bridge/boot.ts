@@ -68,6 +68,23 @@ export interface BootOptions {
   /** Optional model override for the default selection new agents boot
    *  with. Defaults to `deepseek-v4-flash` on `deepseek-official`. */
   model?: string;
+  /** Provider endpoint overrides for the DeepSeek adapter (which speaks
+   *  OpenAI-compatible `/chat/completions`, so any compatible gateway
+   *  works). Surfaced as the `dsh.llm.*` VS Code settings; read once at
+   *  boot. */
+  llm?: {
+    /** Custom API endpoint; omit for the official `https://api.deepseek.com`. */
+    baseURL?: string;
+    /** Custom model catalog for the picker; omit for the built-in
+     *  `deepseek-v4-flash` / `deepseek-v4-pro` entries. */
+    models?: Array<{
+      id: string;
+      name?: string;
+      description?: string;
+      contextWindow?: number;
+      maxTokens?: number;
+    }>;
+  };
   /** The VS Code workspace folder the agent should be aware of. When
    *  provided, a system-prompt section and the read-only workspace tools
    *  (`list_files`/`read_file`/`search_files`) are registered, and new
@@ -164,8 +181,17 @@ export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
   // The native DeepSeek adapter owns the `deepseek-official` provider
   // route (inject: ["llm"]). Without it the route does not exist and
   // every agent request fails downstream. The advertised catalog is
-  // deepseek-v4-flash / deepseek-v4-pro.
-  await mount(DeepSeekLlm);
+  // deepseek-v4-flash / deepseek-v4-pro unless `opts.llm` overrides the
+  // endpoint and/or catalog (the wire protocol is OpenAI-compatible, so
+  // any conforming gateway can serve the route).
+  const llmConfig =
+    opts.llm && (opts.llm.baseURL || opts.llm.models?.length)
+      ? {
+          ...(opts.llm.baseURL ? { baseURL: opts.llm.baseURL } : null),
+          ...(opts.llm.models?.length ? { models: opts.llm.models } : null),
+        }
+      : undefined;
+  await mount(DeepSeekLlm, llmConfig);
   required("llm-deepseek");
   await mount(AgentRegistry);
   required("agents");

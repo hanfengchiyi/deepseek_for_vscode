@@ -115,6 +115,7 @@ export const ChatInput: React.FC = () => {
       type: "chat.send",
       sessionId,
       text,
+      agentPreset: useChatStore.getState().agentPreset,
       ...(attachments.length
         ? { attachments: attachments.map((a) => ({ name: a.name, content: a.content })) }
         : null),

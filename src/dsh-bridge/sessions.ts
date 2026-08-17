@@ -38,7 +38,7 @@ interface AgentsLike {
   get?: (id: string) => unknown;
   create?: (options: {
     sessionId: ReturnType<typeof SessionId>;
-    meta?: { cwd?: string };
+    meta?: { cwd?: string; agentPreset?: string };
     agentOptions?: { provider: string; model: string };
     setup?: (agentCtx: unknown) => unknown;
   }) => Promise<{ agent: unknown }>;
@@ -90,6 +90,7 @@ function creationOptions(ctx: DshCtx, sessionId: string) {
 export async function getOrCreateSession(
   ctx: DshCtx,
   sessionId: string,
+  agentPreset?: string,
 ): Promise<SessionHandle> {
   const agents = agentsOf(ctx);
   // Fast path: the live agent is already registered under this id.
@@ -105,10 +106,12 @@ export async function getOrCreateSession(
   // Slow path: mint a new session+agent together. `meta.cwd` is the
   // workspace root (not the VS Code launcher's cwd) so the JSONL
   // persistence backend files the log under the project directory and
-  // history can filter by project.
+  // history can filter by project. `meta.agentPreset` records the
+  // user-chosen agent preset; it is fixed at creation and persisted in
+  // the log header, so resumed sessions keep their original preset.
   const created = await agents.create({
     sessionId: SessionId(sessionId),
-    meta: { cwd: workspaceRoot() },
+    meta: { cwd: workspaceRoot(), ...(agentPreset ? { agentPreset } : null) },
     ...creationOptions(ctx, sessionId),
   });
   return { id: sessionId, raw: created.agent };

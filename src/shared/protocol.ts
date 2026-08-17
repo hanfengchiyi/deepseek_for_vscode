@@ -12,6 +12,39 @@
 
 export const PROTOCOL_VERSION = 1 as const;
 
+/** Selectable agent presets, stamped into `meta.agentPreset` when the
+ *  host creates a session (the upstream harness interprets the value;
+ *  the extension only records and displays it). A session's preset is
+ *  chosen while the conversation is still empty and cannot change
+ *  afterwards. */
+export const AGENT_PRESETS: Array<{ id: string; label: string; description: string }> = [
+  {
+    id: "standard",
+    label: "标准模式",
+    description: "功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。",
+  },
+  {
+    id: "ptc",
+    label: "PTC 模式",
+    description: "具备标准模式的全部能力，并通过 CodeModeSDK 呈现工具，让模型用一个 TypeScript 程序组合多步操作。",
+  },
+  {
+    id: "minimal",
+    label: "极简模式",
+    description: "仅提供持久 bash 与 str_replace_editor 的双工具编码 Agent。",
+  },
+  {
+    id: "creative",
+    label: "创造模式",
+    description: "用于创建自定义 Agent preset：具备标准模式的全部能力，并提供运行时检查、插件实验和 preset 创作指导。",
+  },
+];
+
+/** Resolve a preset id to its display label; unknown ids display raw. */
+export function agentPresetLabel(id: string): string {
+  return AGENT_PRESETS.find((p) => p.id === id)?.label ?? id;
+}
+
 // 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ Inbound (webview 鈫?host) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 export interface ChatSend {
@@ -22,6 +55,11 @@ export interface ChatSend {
   /** Text file attachments picked via `file.pick`; the host inlines
    *  their contents ahead of `text` before the agent sees them. */
   attachments?: Array<{ name: string; content: string }>;
+  /** Agent preset chosen for this session (see {@link AGENT_PRESETS}).
+   *  Only used when the host CREATES the agent (first `chat.send` of a
+   *  fresh session); ignored once the session exists — a session's
+   *  preset is immutable after creation. */
+  agentPreset?: string;
 }
 
 export interface ChatCancel {
@@ -262,6 +300,34 @@ export interface MessageUsage {
   };
 }
 
+/** Cumulative per-session statistics, aggregated host-side from the raw
+ *  session event stream (live) or replayed from the JSONL log (resumed
+ *  sessions). Sent whenever the numbers change (live, batched with the
+ *  16ms flush) and once after `session.transcript` on `session.open`. */
+export interface SessionStats {
+  v: 1;
+  type: "session.stats";
+  sessionId: string;
+  stats: {
+    /** Completed turns (`turn/end` count). */
+    turns: number;
+    /** Completed steps (`step/end` count). */
+    steps: number;
+    /** Wall time attributed to the model: step durations minus tool time. */
+    llmMs: number;
+    /** Wall time spent inside tool calls (`tool/call` → `tool/result`). */
+    toolMs: number;
+    /** Time-to-first-token per turn (`turn/start` → first chunk). */
+    ttftMs: { avg: number; count: number } | null;
+    /** outputTokens / llmMs, null until both are known. */
+    outputTokensPerSec: number | null;
+    inputTokens: number;
+    outputTokens: number;
+    /** cacheReadTokens / inputTokens in percent, null until known. */
+    cacheHitPct: number | null;
+  };
+}
+
 export interface TurnEnd {
   v: 1;
   type: "turn.end";
@@ -408,6 +474,9 @@ export interface SessionTranscript {
   v: 1;
   type: "session.transcript";
   sessionId: string;
+  /** The preset this session was created with (read from the persisted
+   *  log header); absent for sessions that predate preset support. */
+  agentPreset?: string;
   messages: Array<{
     id: string;
     role: "user" | "assistant" | "system";
@@ -438,6 +507,7 @@ export type WebviewEvent =
   | ToolCall
   | ToolResult
   | MessageUsage
+  | SessionStats
   | TurnEnd
   | QuestionRequest
   | ModelCatalog

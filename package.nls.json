@@ -1,5 +1,12 @@
 {
   "dsh.openChat.title": "DeepSeek Harness: Open Chat",
   "dsh.container.title": "DeepSeek Harness",
-  "dsh.chatView.name": "Chat"
+  "dsh.chatView.name": "Chat",
+  "dsh.configuration.title": "DeepSeek Harness",
+  "dsh.llm.baseURL.description": "Custom model API endpoint (OpenAI-compatible `/chat/completions`), e.g. a self-hosted gateway like `http://localhost:3010`. Empty uses the official `https://api.deepseek.com`. Applied at extension boot — **reload the window** after changing.",
+  "dsh.llm.defaultModel.description": "The model new sessions start with. Must be one of `dsh.llm.models` when a custom catalog is configured. Applied at extension boot — reload the window after changing.",
+  "dsh.llm.models.description": "Custom model catalog shown in the model picker (edit in `settings.json`). Empty uses the built-in DeepSeek catalog (`deepseek-v4-flash` / `deepseek-v4-pro`). Applied at extension boot — reload the window after changing.",
+  "dsh.llm.models.id.description": "Model id the endpoint accepts.",
+  "dsh.llm.models.name.description": "Display name in the model picker.",
+  "dsh.llm.models.contextWindow.description": "Maximum combined input+output context in tokens; drives the context meter."
 }

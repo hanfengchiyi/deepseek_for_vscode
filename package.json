@@ -49,6 +49,53 @@
           "type": "webview"
         }
       ]
+    },
+    "configuration": {
+      "title": "%dsh.configuration.title%",
+      "properties": {
+        "dsh.llm.baseURL": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%dsh.llm.baseURL.description%"
+        },
+        "dsh.llm.defaultModel": {
+          "type": "string",
+          "default": "deepseek-v4-flash",
+          "markdownDescription": "%dsh.llm.defaultModel.description%"
+        },
+        "dsh.llm.models": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "%dsh.llm.models.id.description%"
+              },
+              "name": {
+                "type": "string",
+                "description": "%dsh.llm.models.name.description%"
+              },
+              "description": {
+                "type": "string"
+              },
+              "contextWindow": {
+                "type": "number",
+                "description": "%dsh.llm.models.contextWindow.description%"
+              },
+              "maxTokens": {
+                "type": "number"
+              }
+            }
+          },
+          "markdownDescription": "%dsh.llm.models.description%"
+        }
+      }
     }
   },
   "scripts": {
@@ -84,7 +131,8 @@
     "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
     "@deepseek-ai/dsh-token-meter": "0.1.0-rc.6",
     "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-user-approval": "0.1.0-rc.6"
+    "@deepseek-ai/dsh-user-approval": "0.1.0-rc.6",
+    "koffi": "^3.1.5"
   },
   "devDependencies": {
     "@types/node": "^20",

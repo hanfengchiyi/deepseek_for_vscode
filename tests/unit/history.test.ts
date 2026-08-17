@@ -13,7 +13,14 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { bootDsh, type DshHandle } from "../../src/dsh-bridge/boot";
-import { buildTranscript, listHistory, loadTranscript } from "../../src/dsh-bridge/history";
+import { subscribeDshEvents } from "../../src/dsh-bridge/events";
+import {
+  buildTranscript,
+  listHistory,
+  loadSessionPreset,
+  loadSessionStats,
+  loadTranscript,
+} from "../../src/dsh-bridge/history";
 import { getOrCreateSession, resumeSession } from "../../src/dsh-bridge/sessions";
 
 /** Append one user message to the agent's session and flush it to disk. */
@@ -64,7 +71,7 @@ describe("session history (real persistence, two boots)", () => {
     // Boot 1: create a session and persist one user message.
     const first = await bootDsh({ workspace: { root, name: "demo" } });
     try {
-      await getOrCreateSession(first.ctx, "s-history-1");
+      await getOrCreateSession(first.ctx, "s-history-1", "ptc");
       await appendUserMessage(first, "s-history-1", "hello persisted history");
     } finally {
       await first.dispose();
@@ -82,6 +89,16 @@ describe("session history (real persistence, two boots)", () => {
       const transcript = await loadTranscript(second.ctx, "s-history-1");
       expect(transcript).toHaveLength(1);
       expect(transcript[0]).toMatchObject({ role: "user", content: "hello persisted history" });
+
+      // The preset stamped at creation survives the restart via the log
+      // header; the cold-log stats replay yields a zeroed snapshot for a
+      // session with only a user message.
+      expect(await loadSessionPreset(second.ctx, "s-history-1")).toBe("ptc");
+      expect(await loadSessionStats(second.ctx, "s-history-1")).toMatchObject({
+        turns: 0,
+        steps: 0,
+        inputTokens: 0,
+      });
 
       const resumed = await resumeSession(second.ctx, "s-history-1");
       expect(resumed.id).toBe("s-history-1");
@@ -102,6 +119,84 @@ describe("session history (real persistence, two boots)", () => {
       await fs.rm(otherRoot, { recursive: true, force: true });
     }
   }, 60000);
+
+  it("flushes the session log at every turn/end (durability checkpoint)", async () => {
+    // The persistence plugin batches writes with a short delay and drains
+    // on dispose, but a window reload can kill the extension host before
+    // the dispose drain completes. `subscribeDshEvents` flushes at each
+    // `turn/end` — the same checkpoint dsh-headless uses — so a finished
+    // turn is durable even when the host dies abruptly. This test
+    // appends a turn WITHOUT any manual flush and expects the log to be
+    // complete after a "restart".
+    const first = await bootDsh({ workspace: { root, name: "demo" } });
+    let sub: { close(): void } | undefined;
+    try {
+      await getOrCreateSession(first.ctx, "s-history-flush");
+      sub = subscribeDshEvents(first.ctx, () => {});
+      await appendUserMessage(first, "s-history-flush", "flushed without manual checkpoint");
+      const agents = first.ctx.agents as {
+        get(id: string): { session: { append(t: string, d: unknown, o?: unknown): unknown } };
+      };
+      agents.get("s-history-flush")!.session.append(
+        "turn/end",
+        { turn: 1, reason: { kind: "completed" } },
+      );
+      // Give the async flush a moment to drain to disk.
+      await new Promise((r) => setTimeout(r, 500));
+    } finally {
+      sub?.close();
+      await first.dispose();
+    }
+
+    const second = await bootDsh({ workspace: { root, name: "demo" } });
+    try {
+      const history = await listHistory(second.ctx);
+      const entry = history.find((h) => h.id === "s-history-flush");
+      expect(entry).toBeDefined();
+      expect(entry!.title).toContain("flushed without manual checkpoint");
+    } finally {
+      await second.dispose();
+    }
+  }, 60000);
+});
+
+describe("listHistory cwd matching", () => {
+  /** Minimal ctx stub: only `sessionPersistence` is consumed. */
+  function ctxWith(headers: Array<{ id: string; createdAt: number; cwd?: string }>) {
+    return {
+      sessionPersistence: {
+        list: async () => headers,
+        inspect: async () => ({ events: [] }),
+      },
+    } as never;
+  }
+
+  it("matches the workspace root regardless of drive-letter case on win32", async () => {
+    const cwd = process.cwd();
+    const flipped =
+      /^[a-zA-Z]:/.test(cwd)
+        ? (cwd[0] === cwd[0]!.toLowerCase()
+            ? cwd[0]!.toUpperCase()
+            : cwd[0]!.toLowerCase()) + cwd.slice(1)
+        : cwd;
+    const history = await listHistory(
+      ctxWith([{ id: "s-case", createdAt: 1, cwd: flipped }]) as never,
+    );
+    if (process.platform === "win32") {
+      // `d:\…` (vscode.Uri.fsPath) and `D:\…` (process.cwd) name the
+      // same folder; the filter must not hide such sessions.
+      expect(history.map((h) => h.id)).toEqual(["s-case"]);
+    } else {
+      expect(history.map((h) => h.id)).toEqual(flipped === cwd ? ["s-case"] : []);
+    }
+  });
+
+  it("still excludes sessions from other workspaces", async () => {
+    const history = await listHistory(
+      ctxWith([{ id: "s-else", createdAt: 1, cwd: "/definitely/elsewhere" }]) as never,
+    );
+    expect(history).toEqual([]);
+  });
 });
 
 describe("buildTranscript (pure mapping)", () => {

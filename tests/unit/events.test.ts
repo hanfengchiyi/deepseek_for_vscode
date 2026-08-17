@@ -221,4 +221,36 @@ describe("subscribeDshEvents", () => {
       error: "invalid API key",
     });
   });
+
+  it("emits session.stats snapshots after the mapped events", async () => {
+    const { ctx, listeners } = makeCtx();
+    const sink = vi.fn();
+    const sub = subscribeDshEvents(ctx, sink, { flushIntervalMs: 5 });
+    const session = { id: "sess-1" };
+    listeners.forEach((l) => l(session, { type: "turn/start", time: 0, data: {} } as any));
+    listeners.forEach((l) =>
+      l(session, {
+        type: "assistant/chunk",
+        time: 1000,
+        data: { turn: 1, step: 1, chunk: { type: "text-delta", text: "hi" } },
+      } as any),
+    );
+    listeners.forEach((l) =>
+      l(session, { type: "turn/end", time: 2000, data: { turn: 1, reason: { kind: "completed" } } } as any),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    sub.close();
+
+    const batch = sink.mock.calls.flatMap((c) => c[0]) as Array<Record<string, unknown>>;
+    const statsEvents = batch.filter((e) => e.type === "session.stats");
+    expect(statsEvents.length).toBeGreaterThan(0);
+    // The final snapshot reflects the whole turn: 1 turn completed,
+    // ttft of 1000ms. Mapped events keep their leading position.
+    expect(batch[0].type).toBe("session.stats");
+    const last = statsEvents[statsEvents.length - 1] as {
+      stats: { turns: number; ttftMs: { avg: number; count: number } | null };
+    };
+    expect(last.stats.turns).toBe(1);
+    expect(last.stats.ttftMs).toEqual({ avg: 1000, count: 1 });
+  });
 });

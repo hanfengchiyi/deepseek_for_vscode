@@ -4,8 +4,10 @@ import { ChatHistory } from "./components/ChatHistory";
 import { ChatInput } from "./components/ChatInput";
 import { ModelBar } from "./components/ModelBar";
 import { PluginPanel } from "./components/PluginPanel";
+import { PresetPicker } from "./components/PresetPicker";
 import { QuestionCard } from "./components/QuestionCard";
 import { SessionList } from "./components/SessionList";
+import { StatsBar } from "./components/StatsBar";
 import { onMessage, send } from "./messages/client";
 import { useChatStore } from "./state/store";
 
@@ -91,7 +93,10 @@ export const App: React.FC = () => {
           store.setHistory(ev.sessions);
           break;
         case "session.transcript":
-          store.loadTranscript(ev.sessionId, ev.messages);
+          store.loadTranscript(ev.sessionId, ev.messages, ev.agentPreset);
+          break;
+        case "session.stats":
+          if (ev.sessionId === store.sessionId) store.setStats(ev.stats);
           break;
         case "error":
           store.setError(ev.message);
@@ -109,6 +114,7 @@ export const App: React.FC = () => {
       <header className="dsh-header">
         <span>DeepSeek Harness</span>
         <span className="dsh-header-actions">
+          <PresetPicker />
           <button
             className="dsh-header-button"
             onClick={() => useChatStore.getState().togglePlugins()}
@@ -139,6 +145,7 @@ export const App: React.FC = () => {
         </span>
       </header>
       <ModelBar />
+      <StatsBar />
       {error ? (
         <div className="dsh-error" role="alert">
           <span className="dsh-error-text">{error}</span>
