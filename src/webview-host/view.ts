@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as os from "node:os";
 import * as path from "node:path";
 import { installRouter } from "./router";
 import type { WebviewEvent } from "../shared/protocol";
@@ -58,7 +59,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       workspace: ws ? { root: ws.uri.fsPath, name: ws.name } : undefined,
       pluginsDir,
     });
-    const routerDsh = this.booting.then((dsh) => ({ ctx: dsh.ctx, plugins: dsh.plugins }));
+    const routerDsh = this.booting.then((dsh) => ({
+      ctx: dsh.ctx,
+      plugins: dsh.plugins,
+      runtimePlugins: dsh.runtimePlugins,
+      workspaceRoot: ws?.uri.fsPath,
+    }));
     // The router consumes `routerDsh` only when a message arrives; if
     // boot fails before that, this keeps the rejection from going
     // unhandled (the router's own await still sees it).
@@ -111,6 +117,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           }
         }
         return { files, ...(skipped.length ? { skipped } : null) };
+      },
+      // Native save dialog for /export; copies the raw session log.
+      saveFile: async (defaultName, sourcePath) => {
+        const target = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),
+          title: vscode.l10n.t("Export session log"),
+        });
+        if (!target) return false;
+        await vscode.workspace.fs.copy(vscode.Uri.file(sourcePath), target, {
+          overwrite: true,
+        });
+        return true;
+      },
+      reloadWindow: () => {
+        void vscode.commands.executeCommand("workbench.action.reloadWindow");
       },
     });
     view.onDidDispose(() => {

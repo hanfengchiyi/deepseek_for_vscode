@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { PluginCatalogEntry } from "@shared/protocol";
 
 export interface ToolCallItem {
   callId: string;
@@ -51,12 +52,13 @@ export interface PendingQuestion {
   options?: string[];
 }
 
-/** One user plugin's boot-time load outcome (host `plugin.catalog`). */
-export interface PluginEntry {
-  id: string;
-  path: string;
-  status: "loaded" | "error";
-  error?: string;
+/** One plugin entry from the host `plugin.catalog` (runtime or user). */
+export type PluginEntry = PluginCatalogEntry;
+
+/** One slash command on the host command plane (e.g. `compact`). */
+export interface HostCommandEntry {
+  name: string;
+  description: string;
 }
 
 /** A live approval request for a mutating tool call. */
@@ -104,6 +106,10 @@ interface ChatState {
   plugins: PluginEntry[] | null;
   /** Whether the plugin panel is visible. */
   pluginsOpen: boolean;
+  /** Host-plane slash commands for the current session. */
+  hostCommands: HostCommandEntry[];
+  /** True after a plugin toggle until the window reloads. */
+  pluginDirty: boolean;
   /** Live `ask_user` question awaiting an answer; null when none. */
   question: PendingQuestion | null;
   /** Current permission preset; null until the first permission.state. */
@@ -126,6 +132,11 @@ interface ChatState {
   toggleHistory: () => void;
   setPlugins: (plugins: PluginEntry[]) => void;
   togglePlugins: () => void;
+  setHostCommands: (commands: HostCommandEntry[]) => void;
+  /** Append a system bubble (command results, export outcomes). */
+  addSystemMessage: (text: string) => void;
+  /** Mark that a plugin toggle needs a window reload. */
+  setPluginDirty: () => void;
   /** Show or clear the `ask_user` question card. */
   setQuestion: (question: PendingQuestion | null) => void;
   setPresetState: (preset: string) => void;
@@ -183,6 +194,8 @@ export const useChatStore = create<ChatState>((set) => ({
   historyOpen: false,
   plugins: null,
   pluginsOpen: false,
+  hostCommands: [],
+  pluginDirty: false,
   question: null,
   preset: null,
   approval: null,
@@ -196,6 +209,12 @@ export const useChatStore = create<ChatState>((set) => ({
   toggleHistory: () => set((s) => ({ historyOpen: !s.historyOpen, pluginsOpen: false })),
   setPlugins: (plugins) => set({ plugins }),
   togglePlugins: () => set((s) => ({ pluginsOpen: !s.pluginsOpen, historyOpen: false })),
+  setHostCommands: (hostCommands) => set({ hostCommands }),
+  addSystemMessage: (text) =>
+    set((s) => ({
+      messages: [...s.messages, { id: `sys-${Date.now()}`, role: "system", content: text }],
+    })),
+  setPluginDirty: () => set({ pluginDirty: true }),
   setQuestion: (question) => set({ question }),
   setPresetState: (preset) => set({ preset }),
   setApproval: (approval) => set({ approval }),

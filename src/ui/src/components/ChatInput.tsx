@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useChatStore } from "../state/store";
 import { send } from "../messages/client";
 
@@ -7,6 +7,10 @@ import { send } from "../messages/client";
  * toolbar row — `+` attaches text files (host-side native picker),
  * typing `/` opens the command menu, the mode chip switches the
  * permission preset, and the send/stop button sits on the right.
+ *
+ * The command menu merges local UI commands (SLASH_COMMANDS) with
+ * host-plane commands (`ctx.commands` upstream, e.g. /compact),
+ * fetched via `command.list` whenever the menu opens.
  */
 
 interface SlashCommand {
@@ -39,6 +43,14 @@ const SLASH_COMMANDS: SlashCommand[] = [
     description: "Set or replace the provider API key",
     run: () => send({ v: 1, type: "credential.set" }),
   },
+  {
+    name: "export",
+    description: "Export this session's event log to a file",
+    run: () => {
+      const { sessionId } = useChatStore.getState();
+      send({ v: 1, type: "session.export", sessionId });
+    },
+  },
 ];
 
 export const ChatInput: React.FC = () => {
@@ -51,19 +63,39 @@ export const ChatInput: React.FC = () => {
   const attachments = useChatStore((s) => s.attachments);
   const removeAttachment = useChatStore((s) => s.removeAttachment);
   const preset = useChatStore((s) => s.preset);
+  const hostCommands = useChatStore((s) => s.hostCommands);
 
   // The command menu opens while the input is a slash prefix.
   const slashQuery = input.startsWith("/") ? input.slice(1) : null;
-  const matches =
-    slashQuery !== null
-      ? SLASH_COMMANDS.filter(
-          (c) => slashQuery === "" || c.name.startsWith(slashQuery.toLowerCase()),
-        )
-      : [];
+  const menuOpen = slashQuery !== null;
 
-  const runCommand = (cmd: SlashCommand) => {
+  // Refresh the host command list each time the menu opens.
+  useEffect(() => {
+    if (menuOpen) send({ v: 1, type: "command.list", sessionId });
+  }, [menuOpen, sessionId]);
+
+  const localMatches = menuOpen
+    ? SLASH_COMMANDS.filter(
+        (c) => slashQuery === "" || c.name.startsWith(slashQuery!.toLowerCase()),
+      )
+    : [];
+  const remoteMatches = menuOpen
+    ? hostCommands.filter(
+        (c) =>
+          (slashQuery === "" || c.name.startsWith(slashQuery!.toLowerCase())) &&
+          !localMatches.some((l) => l.name === c.name),
+      )
+    : [];
+  const hasMatches = localMatches.length + remoteMatches.length > 0;
+
+  const runLocal = (cmd: SlashCommand) => {
     setInput("");
     cmd.run();
+  };
+
+  const runRemote = (name: string) => {
+    setInput("");
+    send({ v: 1, type: "command.run", sessionId, line: `/${name}` });
   };
 
   const onSend = () => {
@@ -71,8 +103,9 @@ export const ChatInput: React.FC = () => {
     if (!text || busy) return;
     // A lone slash command on Enter runs the first match instead of
     // being sent to the model.
-    if (slashQuery !== null && matches.length > 0) {
-      runCommand(matches[0]);
+    if (menuOpen && hasMatches) {
+      if (localMatches.length > 0) runLocal(localMatches[0]);
+      else runRemote(remoteMatches[0].name);
       return;
     }
     addUserMessage(text);
@@ -97,17 +130,29 @@ export const ChatInput: React.FC = () => {
   return (
     <div className="dsh-input">
       <div className="dsh-input-box">
-        {slashQuery !== null && matches.length > 0 ? (
+        {menuOpen && hasMatches ? (
           <div className="dsh-command-menu" role="listbox" aria-label="Commands">
-            {matches.map((c) => (
+            {localMatches.map((c) => (
               <button
                 key={c.name}
                 className="dsh-command-item"
                 role="option"
-                onClick={() => runCommand(c)}
+                onClick={() => runLocal(c)}
               >
                 <span className="dsh-command-name">/{c.name}</span>
                 <span className="dsh-command-desc">{c.description}</span>
+              </button>
+            ))}
+            {remoteMatches.map((c) => (
+              <button
+                key={c.name}
+                className="dsh-command-item"
+                role="option"
+                onClick={() => runRemote(c.name)}
+              >
+                <span className="dsh-command-name">/{c.name}</span>
+                <span className="dsh-command-desc">{c.description}</span>
+                <span className="dsh-command-badge">host</span>
               </button>
             ))}
           </div>

@@ -164,6 +164,76 @@
   opacity: 0.85;
 }
 
+.dsh-plugin-section {
+  padding: 10px 8px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+}
+
+.dsh-plugin-status.dsh-plugin-disabled {
+  background: var(--dsh-border);
+}
+
+.dsh-plugin-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.dsh-plugin-desc {
+  display: block;
+  font-family: inherit;
+  opacity: 0.55;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dsh-plugin-toggle {
+  flex: none;
+  border: 1px solid var(--dsh-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsh-fg);
+  padding: 2px 9px;
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.dsh-plugin-toggle-on {
+  border-color: var(--dsh-accent);
+  color: var(--dsh-accent);
+  opacity: 1;
+}
+
+.dsh-plugin-reload {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px 8px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--dsh-accent));
+  border-radius: 8px;
+  font-size: 11.5px;
+}
+
+.dsh-plugin-reload button {
+  flex: none;
+  border: none;
+  border-radius: 6px;
+  background: var(--dsh-accent);
+  color: var(--dsh-accent-fg);
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
 /* ── Model bar ──────────────────────────────────────────── */
 
 .dsh-modelbar {
@@ -295,6 +365,12 @@
 .dsh-message-system {
   align-self: stretch;
   padding: 2px 2px 4px;
+}
+
+.dsh-message-system .dsh-message-content {
+  font-size: 11.5px;
+  opacity: 0.65;
+  font-style: italic;
 }
 
 .dsh-message-content {
@@ -882,4 +958,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dsh-command-badge {
+  flex: none;
+  margin-left: auto;
+  border: 1px solid var(--dsh-border);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 9.5px;
+  opacity: 0.6;
 }

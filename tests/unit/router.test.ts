@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { installRouter } from "../../src/webview-host/router";
 import { resetModelSelection } from "../../src/dsh-bridge/models";
 import type { WebviewEvent } from "../../src/shared/protocol";
@@ -58,7 +61,12 @@ function makeCtx() {
   return { ctx, followup, cancel, credentialSet };
 }
 
-beforeEach(() => resetModelSelection());
+beforeEach(() => {
+  resetModelSelection();
+  // buildPluginCatalog reads the plugin config under $DSH_HOME; point it
+  // at a fresh temp dir so tests stay hermetic.
+  process.env.DSH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-router-"));
+});
 
 function makePanel() {
   const sent: WebviewEvent[] = [];
@@ -231,7 +239,9 @@ describe("router", () => {
     expect(history.sessions.map((s) => s.id)).toEqual(["s-old"]);
     expect(history.sessions[0].title).toBe("old question");
     const catalog = sent[2] as Extract<WebviewEvent, { type: "plugin.catalog" }>;
-    expect(catalog.plugins).toEqual(plugins);
+    expect(catalog.plugins).toEqual([
+      { scope: "user", id: "demo.js", path: "/plugins/demo.js", status: "loaded" },
+    ]);
     expect(sent[3]).toMatchObject({ type: "permission.state", preset: "workspace-write" });
     sub.dispose();
   });
@@ -289,6 +299,133 @@ describe("router", () => {
         recoverable: true,
       },
     ]);
+    sub.dispose();
+  });
+
+  it("answers command.list with the host command catalog", async () => {
+    const { panel, sent } = makePanel();
+    const { ctx } = makeCtx();
+    (ctx as any).commands = {
+      list: () => [{ name: "compact", description: "Compact older history" }],
+      execute: vi.fn(),
+    };
+    const sub = installRouter(panel as any, { ctx });
+    const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
+    await handler({ v: 1, type: "command.list", sessionId: "s1" });
+    expect(sent).toEqual([
+      {
+        v: 1,
+        type: "command.catalog",
+        sessionId: "s1",
+        commands: [{ name: "compact", description: "Compact older history" }],
+      },
+    ]);
+    sub.dispose();
+  });
+
+  it("routes command.run to ctx.commands.execute and reports the outcome", async () => {
+    const { panel, sent } = makePanel();
+    const { ctx } = makeCtx();
+    const execute = vi.fn(async () => ({
+      commandId: "c-1",
+      result: { kind: "success", text: "Compacted 12 items." },
+    }));
+    (ctx as any).commands = { list: () => [], execute };
+    const sub = installRouter(panel as any, { ctx });
+    const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
+    await handler({ v: 1, type: "command.run", sessionId: "s1", line: "/compact" });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0][1]).toBe("/compact");
+    expect(sent).toEqual([
+      {
+        v: 1,
+        type: "command.result",
+        sessionId: "s1",
+        ok: true,
+        text: "Compacted 12 items.",
+      },
+    ]);
+    sub.dispose();
+  });
+
+  it("reports unknown host commands as failed results", async () => {
+    const { panel, sent } = makePanel();
+    const { ctx } = makeCtx();
+    (ctx as any).commands = { list: () => [], execute: async () => undefined };
+    const sub = installRouter(panel as any, { ctx });
+    const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
+    await handler({ v: 1, type: "command.run", sessionId: "s1", line: "/nope" });
+    expect(sent[0]).toMatchObject({ type: "command.result", ok: false });
+    sub.dispose();
+  });
+
+  it("exports the persisted session log through the save dialog", async () => {
+    const { panel, sent } = makePanel();
+    const { ctx } = makeCtx();
+    // Recreate the JSONL persistence layout: <home>/sessions/<project
+    // key>/<encoded session id>/session.jsonl ("/ws" → "--ws--").
+    const cwd = "/ws";
+    const home = process.env.DSH_HOME!;
+    const dir = path.join(home, "sessions", "--ws--", "s-old");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "session.jsonl"), '{"seq":1}\n');
+
+    const saveFile = vi.fn(async () => true);
+    const sub = installRouter(panel as any, { ctx, workspaceRoot: cwd }, { saveFile });
+    const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
+    await handler({ v: 1, type: "session.export", sessionId: "s-old" });
+    expect(saveFile).toHaveBeenCalledTimes(1);
+    expect(saveFile.mock.calls[0][0]).toBe("s-old.jsonl");
+    expect(saveFile.mock.calls[0][1]).toBe(path.join(dir, "session.jsonl"));
+    expect(sent).toEqual([
+      {
+        v: 1,
+        type: "command.result",
+        sessionId: "s-old",
+        ok: true,
+        text: "Session log exported (s-old.jsonl).",
+      },
+    ]);
+    sub.dispose();
+  });
+
+  it("reports when there is nothing to export", async () => {
+    const { panel, sent } = makePanel();
+    const { ctx } = makeCtx();
+    const sub = installRouter(panel as any, { ctx }, { saveFile: vi.fn() });
+    const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
+    await handler({ v: 1, type: "session.export", sessionId: "s-missing" });
+    expect(sent[0]).toMatchObject({ type: "command.result", ok: false });
+    sub.dispose();
+  });
+
+  it("persists plugin.setEnabled and replies with the refreshed catalog", async () => {
+    const { panel, sent } = makePanel();
+    const { ctx } = makeCtx();
+    const sub = installRouter(panel as any, {
+      ctx,
+      runtimePlugins: [
+        {
+          id: "ask-user",
+          name: "tool-ask-user",
+          description: "Model can ask the user questions mid-turn",
+          required: false,
+          enabled: true,
+          status: "mounted" as const,
+        },
+      ],
+    });
+    const handler = (panel.webview.onDidReceiveMessage as any).mock.calls[0][0];
+    await handler({ v: 1, type: "plugin.setEnabled", id: "ask-user", enabled: false });
+    expect(sent.map((m) => m.type)).toEqual(["plugin.catalog", "command.result"]);
+    const catalog = sent[0] as Extract<WebviewEvent, { type: "plugin.catalog" }>;
+    const entry = catalog.plugins.find((p) => p.id === "ask-user");
+    expect(entry).toMatchObject({ scope: "runtime", enabled: false });
+    // The config file landed under the temp DSH_HOME.
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(process.env.DSH_HOME!, "vscode-extension.json"), "utf8"),
+    );
+    expect(cfg.disabledPlugins).toEqual(["ask-user"]);
     sub.dispose();
   });
 });

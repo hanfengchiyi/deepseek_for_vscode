@@ -140,8 +140,26 @@ describe("webview app smoke", () => {
       v: 1,
       type: "plugin.catalog",
       plugins: [
-        { id: "demo.js", path: "/plugins/demo.js", status: "loaded" },
-        { id: "bad.js", path: "/plugins/bad.js", status: "error", error: "boom" },
+        {
+          scope: "runtime",
+          id: "ask-user",
+          name: "tool-ask-user",
+          description: "Model can ask the user questions mid-turn",
+          required: false,
+          enabled: true,
+          status: "mounted",
+        },
+        {
+          scope: "runtime",
+          id: "llm",
+          name: "llm",
+          description: "LLM runtime",
+          required: true,
+          enabled: true,
+          status: "mounted",
+        },
+        { scope: "user", id: "demo.js", path: "/plugins/demo.js", status: "loaded" },
+        { scope: "user", id: "bad.js", path: "/plugins/bad.js", status: "error", error: "boom" },
       ],
     });
     // Open the panel via the header toggle.
@@ -149,8 +167,17 @@ describe("webview app smoke", () => {
     await act(async () => {
       toggle.click();
     });
+    // Runtime section: two rows, one toggleable + one required.
+    expect(container.textContent).toContain("Runtime plugins");
+    expect(container.textContent).toContain("User plugins");
+    const toggleBtn = container.querySelector(
+      '.dsh-plugin-toggle[aria-label="Toggle tool-ask-user"]',
+    );
+    expect(toggleBtn).not.toBeNull();
+    expect(container.textContent).toContain("required");
+    // User section: both rows render with their status.
     const rows = container.querySelectorAll(".dsh-plugin-row");
-    expect(rows.length).toBe(2);
+    expect(rows.length).toBe(4);
     expect(container.querySelector(".dsh-plugin-loaded")).not.toBeNull();
     expect(container.querySelector(".dsh-plugin-error")).not.toBeNull();
     expect(container.textContent).toContain("demo.js");

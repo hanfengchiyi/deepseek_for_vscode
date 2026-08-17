@@ -8,36 +8,28 @@
  * workspace. This host drives agents itself through `ctx.agents` /
  * `ctx.sessions`, so boot here only registers services:
  *
- *   1. `LlmRuntime`            (registers `ctx.llm`)
- *   2. `dsh-llm-deepseek`      (owns the `deepseek-official` provider route;
- *      its key resolves per request from `$DEEPSEEK_API_KEY` via the
- *      credentials service, endpoint defaults to https://api.deepseek.com)
- *   3. `AgentRegistry`         (registers `ctx.agents`)
- *   4. `AgentDefaultModelConfig` (registers `ctx.agentDefaultModel`)
- *   5. `SessionStore`          (registers `ctx.sessions`, in-memory)
- *   6. `SessionPersistenceJsonl` (registers `ctx.sessionPersistence`,
- *      append-only JSONL logs under `$DSH_HOME/sessions`, grouped into
- *      per-project directories keyed off the session's `meta.cwd`)
- *   7. agent driver stack: `SystemPrompt`, `ToolRuntime`, `AgentLoop`
- *      (`AgentLoop` injects `["agents","sessions","llm","tools",
- *      "systemPrompt"]`; without it, creating an agent throws "no agent
- *      factory registered")
- *   8. `LocalCredentialProvider` (`$DSH_HOME/.credentials.yaml`, 0600)
- *   9. workspace awareness (`./workspace`): prompt section + read-only
- *      tools, when `BootOptions.workspace` is given
- *  10. `ask_user` tool (`./ask-user`): the model can pause mid-turn and
- *      ask the user a question; the webview answer becomes the tool
- *      result. Registered here; the webview-bound event sink is
- *      installed by the view layer via `setAskUserSink`.
- *  11. user plugins (`./plugins`): Cordis plugins found in
- *      `BootOptions.pluginsDir` (convention: `$DSH_HOME/plugins`) are
- *      imported and mounted after every core service; per-plugin
- *      failures are isolated and reported on `DshHandle.plugins`.
- *  12. permissions: `dsh-user-approval` (`ctx.approval`) + the preset
- *      gate (`./permissions.ts`, read-only / workspace-write /
- *      full-access on `tools/pre-execute`) + the webview approval
- *      answerer (`./approvals.ts`) + the mutating tools it gates
- *      (`./write-tools.ts`: `write_file`, `run_command`).
+ *   1. core services, always mounted (`required` in RUNTIME_PLUGINS):
+ *      LlmRuntime, dsh-llm-deepseek (owns the `deepseek-official`
+ *      provider route), AgentRegistry, AgentDefaultModelConfig,
+ *      SessionStore, SessionPersistenceJsonl ($DSH_HOME/sessions,
+ *      per-project directories keyed off `meta.cwd`), the agent driver
+ *      stack (SystemPrompt, ToolRuntime, AgentLoop), and
+ *      LocalCredentialProvider ($DSH_HOME/.credentials.yaml, 0600)
+ *   2. optional groups, gated by `$DSH_HOME/vscode-extension.json`
+ *      (`disabledPlugins`, see ./plugin-config.ts); each is isolated —
+ *      a failure is reported on `DshHandle.runtimePlugins` instead of
+ *      aborting the boot:
+ *      - `permissions`: dsh-user-approval + the preset gate
+ *        (./permissions.ts) + the webview approval answerer
+ *        (./approvals.ts) + the mutating tools it gates
+ *        (./write-tools.ts)
+ *      - `ask-user`: the `ask_user` tool (./ask-user.ts)
+ *      - `workspace`: prompt section + read-only tools (./workspace.ts)
+ *      - `commands`: the human command plane — dsh-commands +
+ *        dsh-token-meter + dsh-compaction-basic + dsh-command-compact
+ *        (`/compact`)
+ *      - `user-plugins`: Cordis plugins from `BootOptions.pluginsDir`
+ *        (./plugins.ts)
  *
  * The returned {@link DshHandle} disposes every plugin fiber in reverse
  * mount order; `dispose()` is idempotent.
@@ -56,12 +48,21 @@ import * as DeepSeekLlm from "@deepseek-ai/dsh-llm-deepseek";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
 import UserApproval from "@deepseek-ai/dsh-user-approval";
+import { CommandRuntime } from "@deepseek-ai/dsh-commands";
+import TokenMeter from "@deepseek-ai/dsh-token-meter";
+import CompactionBasic from "@deepseek-ai/dsh-compaction-basic";
+import * as CommandCompact from "@deepseek-ai/dsh-command-compact";
 import { registerApprovalAnswerer } from "./approvals";
 import { registerAskUser } from "./ask-user";
 import { registerPermissionGate } from "./permissions";
 import { registerWorkspace, type WorkspaceInfo } from "./workspace";
 import { registerWriteTools } from "./write-tools";
 import { loadUserPlugins, type PluginInfo } from "./plugins";
+import {
+  RUNTIME_PLUGINS,
+  readDisabledPlugins,
+  type RuntimePluginState,
+} from "./plugin-config";
 
 export interface BootOptions {
   /** Optional model override for the default selection new agents boot
@@ -87,12 +88,21 @@ export interface DshCtx {
   [key: string]: unknown;
 }
 
+/** Boot-time state of one runtime plugin: its static metadata, the
+ *  configured enabled flag, and what actually happened this boot. */
+export interface RuntimePluginInfo extends RuntimePluginState {
+  status: "mounted" | "disabled" | "error";
+  error?: string;
+}
+
 export interface DshHandle {
   /** Typed view of the Cordis context's services. */
   ctx: DshCtx;
   /** Load outcome of every user plugin found in `BootOptions.pluginsDir`
    *  (empty when no pluginsDir was given). */
   plugins: PluginInfo[];
+  /** Boot outcome of every runtime plugin in `RUNTIME_PLUGINS`. */
+  runtimePlugins: RuntimePluginInfo[];
   /** Whether `dispose()` has been called. */
   disposed: boolean;
   /** Idempotent disposer; safe to call multiple times. */
@@ -123,20 +133,49 @@ export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
     fibers.push(await ctx.plugin(plugin as never, config as never));
   };
 
+  // Plugin enable/disable state, read once per boot (toggling requires a
+  // window reload). `on(id)` gates the optional groups below; required
+  // plugins are always mounted and fail the boot when they fail.
+  const disabled = await readDisabledPlugins(dshHome());
+  const on = (id: string) => !disabled.has(id);
+  const outcomes = new Map<string, RuntimePluginInfo["status"]>();
+  const errors = new Map<string, string>();
+  /** Mount an optional group when enabled; isolate its failure so one
+   *  broken optional plugin never aborts the boot. */
+  const mountOptional = async (id: string, fn: () => Promise<void>) => {
+    if (!on(id)) {
+      outcomes.set(id, "disabled");
+      return;
+    }
+    try {
+      await fn();
+      outcomes.set(id, "mounted");
+    } catch (err) {
+      outcomes.set(id, "error");
+      errors.set(id, err instanceof Error ? err.message : String(err));
+    }
+  };
+  const required = (id: string) => outcomes.set(id, "mounted");
+
   // Core services. Each `ctx.plugin` resolves once the plugin is mounted;
   // the returned fibers are disposed in reverse order by the handle.
   await mount(LlmRuntime);
+  required("llm");
   // The native DeepSeek adapter owns the `deepseek-official` provider
   // route (inject: ["llm"]). Without it the route does not exist and
   // every agent request fails downstream. The advertised catalog is
   // deepseek-v4-flash / deepseek-v4-pro.
   await mount(DeepSeekLlm);
+  required("llm-deepseek");
   await mount(AgentRegistry);
+  required("agents");
   await mount(AgentDefaultModelConfig, {
     provider: "deepseek-official",
     model: opts.model ?? "deepseek-v4-flash",
   });
+  required("agent-default-model");
   await mount(SessionStore);
+  required("sessions");
 
   // Durable session logs (`ctx.sessionPersistence`, inject: ["sessions"]).
   // The backend subscribes to `session/event` and writes append-only JSONL
@@ -146,6 +185,7 @@ export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
   await mount(SessionPersistenceJsonl, {
     root: path.join(dshHome(), "sessions"),
   });
+  required("session-persistence");
 
   // Agent driver stack. `AgentRegistry.create()` requires a registered
   // agent factory ("no agent factory registered" otherwise); the concrete
@@ -154,32 +194,11 @@ export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
   // mounted alongside it. All three configs default cleanly for a plain
   // chat deployment (no declarative agents, empty tool registry).
   await mount(SystemPrompt);
+  required("system-prompt");
   await mount(ToolRuntime);
+  required("tools");
   await mount(AgentLoop);
-
-  // Approval service (`ctx.approval`): resolves `ask` pre-execute
-  // decisions through the `approval/request` waterfall, with per-session
-  // policy + audit logging. Default policy `ask` delegates to answerers.
-  await mount(UserApproval);
-
-  // Interactive Q&A: `ask_user` lets the model pause mid-turn and ask
-  // the user a question; the webview answer becomes the tool result.
-  // Must run after ToolRuntime is mounted (it writes to `ctx.tools`).
-  const disposeAskUser = registerAskUser(ctx as unknown as DshCtx);
-
-  // Permission gate (read-only / workspace-write / full-access) on
-  // `tools/pre-execute`, the webview answerer for the asks it raises,
-  // and the mutating tools it gates. All three after ToolRuntime.
-  const disposeGate = registerPermissionGate(ctx as unknown as DshCtx);
-  const disposeAnswerer = registerApprovalAnswerer(ctx as unknown as DshCtx);
-  const disposeWriteTools = registerWriteTools(ctx as unknown as DshCtx);
-
-  // Workspace awareness. Must run after ToolRuntime and SystemPrompt are
-  // mounted (registerWorkspace writes to both services). The returned
-  // disposer unregisters the prompt section and tools.
-  const disposeWorkspace = opts.workspace
-    ? registerWorkspace(ctx as unknown as DshCtx, opts.workspace)
-    : undefined;
+  required("agent-loop");
 
   // Credential store (`$DSH_HOME/.credentials.yaml`, file-backed, 0600).
   // The DeepSeek adapter resolves `$DEEPSEEK_API_KEY` through the
@@ -187,18 +206,84 @@ export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
   // service's layering), so mounting this lets the user set the key from
   // the webview instead of relaunching VS Code with an env var.
   await mount(LocalCredentialProvider);
+  required("credentials");
+
+  // Permissions (optional): approval service (`ctx.approval`) resolving
+  // `ask` pre-execute decisions through the `approval/request`
+  // waterfall, the preset gate on `tools/pre-execute`, the webview
+  // answerer, and the mutating tools (`write_file`, `run_command`).
+  let disposePermissions: (() => void) | undefined;
+  await mountOptional("permissions", async () => {
+    await mount(UserApproval);
+    const disposeGate = registerPermissionGate(ctx as unknown as DshCtx);
+    const disposeAnswerer = registerApprovalAnswerer(ctx as unknown as DshCtx);
+    const disposeWriteTools = registerWriteTools(ctx as unknown as DshCtx);
+    disposePermissions = () => {
+      disposeWriteTools();
+      disposeAnswerer();
+      disposeGate();
+    };
+  });
+
+  // Interactive Q&A (optional): `ask_user` lets the model pause mid-turn
+  // and ask the user a question; the webview answer becomes the tool
+  // result. Must run after ToolRuntime (it writes to `ctx.tools`).
+  let disposeAskUser: (() => void) | undefined;
+  await mountOptional("ask-user", async () => {
+    disposeAskUser = registerAskUser(ctx as unknown as DshCtx);
+  });
+
+  // Workspace awareness (optional). Must run after ToolRuntime and
+  // SystemPrompt are mounted (registerWorkspace writes to both). Without
+  // BootOptions.workspace there is nothing to register.
+  let disposeWorkspace: (() => void) | undefined;
+  if (opts.workspace) {
+    await mountOptional("workspace", async () => {
+      disposeWorkspace = registerWorkspace(ctx as unknown as DshCtx, opts.workspace!);
+    });
+  } else {
+    outcomes.set("workspace", "disabled");
+  }
+
+  // Human command plane (optional): `ctx.commands` plus the basic
+  // compaction backend and its `/compact` command. Mount order is
+  // inject-driven: CommandRuntime → TokenMeter → CompactionBasic
+  // (inject: ["llm", "tokenMeter", "sessions"]) → CommandCompact
+  // (inject: ["commands", "compaction"]).
+  await mountOptional("commands", async () => {
+    await mount(CommandRuntime);
+    await mount(TokenMeter);
+    await mount(CompactionBasic);
+    await mount(CommandCompact);
+  });
 
   // User plugins come last so every core service (llm, agents, sessions,
   // tools, systemPrompt, credentials) is already on the context when
   // they mount. Per-plugin failures are isolated inside loadUserPlugins.
-  const userPlugins = opts.pluginsDir
-    ? await loadUserPlugins(ctx as unknown as DshCtx, opts.pluginsDir)
-    : { plugins: [] as PluginInfo[], dispose: async () => {} };
+  let userPlugins: { plugins: PluginInfo[]; dispose: () => Promise<void> } = {
+    plugins: [],
+    dispose: async () => {},
+  };
+  if (opts.pluginsDir) {
+    await mountOptional("user-plugins", async () => {
+      userPlugins = await loadUserPlugins(ctx as unknown as DshCtx, opts.pluginsDir!);
+    });
+  } else {
+    outcomes.set("user-plugins", "disabled");
+  }
+
+  const runtimePlugins: RuntimePluginInfo[] = RUNTIME_PLUGINS.map((meta) => ({
+    ...meta,
+    enabled: meta.required || !disabled.has(meta.id),
+    status: outcomes.get(meta.id) ?? "mounted",
+    ...(errors.has(meta.id) ? { error: errors.get(meta.id) } : null),
+  }));
 
   let disposed = false;
   return {
     ctx: ctx as unknown as DshCtx,
     plugins: userPlugins.plugins,
+    runtimePlugins,
     get disposed() {
       return disposed;
     },
@@ -207,10 +292,8 @@ export async function bootDsh(opts: BootOptions = {}): Promise<DshHandle> {
       disposed = true;
       await userPlugins.dispose();
       disposeWorkspace?.();
-      disposeWriteTools();
-      disposeAnswerer();
-      disposeGate();
-      disposeAskUser();
+      disposeAskUser?.();
+      disposePermissions?.();
       for (const fiber of fibers.reverse()) {
         await fiber.dispose();
       }

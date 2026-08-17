@@ -75,6 +75,12 @@ export const App: React.FC = () => {
             store.setError(`Skipped non-text or oversize files: ${ev.skipped.join(", ")}`);
           }
           break;
+        case "command.catalog":
+          store.setHostCommands(ev.commands);
+          break;
+        case "command.result":
+          if (ev.text) store.addSystemMessage(ev.text);
+          break;
         case "plugin.catalog":
           store.setPlugins(ev.plugins);
           break;

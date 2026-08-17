@@ -121,6 +121,46 @@ export interface FilePick {
   type: "file.pick";
 }
 
+/** Ask the host for the slash commands registered on the runtime command
+ *  plane (`ctx.commands`) for this session's agent. */
+export interface CommandListRequest {
+  v: 1;
+  type: "command.list";
+  sessionId: string;
+}
+
+/** Execute one slash command line ("/compact") on the host command
+ *  plane; the outcome returns via `command.result`. */
+export interface CommandRun {
+  v: 1;
+  type: "command.run";
+  sessionId: string;
+  line: string;
+}
+
+/** Export this session's raw JSONL event log via a native save dialog;
+ *  the outcome returns via `command.result`. */
+export interface SessionExport {
+  v: 1;
+  type: "session.export";
+  sessionId: string;
+}
+
+/** Enable or disable one runtime plugin. Persists to
+ *  `$DSH_HOME/vscode-extension.json`; takes effect on window reload. */
+export interface PluginSetEnabled {
+  v: 1;
+  type: "plugin.setEnabled";
+  id: string;
+  enabled: boolean;
+}
+
+/** Reload the extension host window (after plugin toggles). */
+export interface HostReload {
+  v: 1;
+  type: "host.reload";
+}
+
 export type HostCommand =
   | ChatSend
   | ChatCancel
@@ -136,7 +176,12 @@ export type HostCommand =
   | PluginDirOpen
   | ApprovalAnswer
   | PermissionSet
-  | FilePick;
+  | FilePick
+  | CommandListRequest
+  | CommandRun
+  | SessionExport
+  | PluginSetEnabled
+  | HostReload;
 
 // 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ Outbound (host 鈫?webview) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
@@ -241,17 +286,38 @@ export interface QuestionRequest {
   options?: string[];
 }
 
-/** Boot-time load outcome of every user plugin found in the plugins
- *  directory; mirrors `PluginInfo` in `dsh-bridge/plugins.ts`. */
+/** One entry of the plugin panel. Runtime plugins are the fixed set the
+ *  extension boots (toggleable via `plugin.setEnabled` unless required);
+ *  user plugins are loose Cordis modules from `$DSH_HOME/plugins`. */
+export type PluginCatalogEntry =
+  | {
+      scope: "runtime";
+      id: string;
+      name: string;
+      description: string;
+      /** Required plugins cannot be disabled. */
+      required: boolean;
+      /** Configured state; takes effect on the next boot. */
+      enabled: boolean;
+      /** What actually happened this boot. */
+      status: "mounted" | "disabled" | "error";
+      error?: string;
+    }
+  | {
+      scope: "user";
+      id: string;
+      path: string;
+      status: "loaded" | "error";
+      error?: string;
+    };
+
+/** Boot-time state of every runtime plugin plus the load outcome of
+ *  every user plugin; mirrors `RuntimePluginInfo` in
+ *  `dsh-bridge/boot.ts` and `PluginInfo` in `dsh-bridge/plugins.ts`. */
 export interface PluginCatalog {
   v: 1;
   type: "plugin.catalog";
-  plugins: Array<{
-    id: string;
-    path: string;
-    status: "loaded" | "error";
-    error?: string;
-  }>;
+  plugins: PluginCatalogEntry[];
 }
 
 /** A mutating tool call is paused awaiting the user's decision. The
@@ -282,6 +348,25 @@ export interface FilePicked {
   type: "file.picked";
   files: Array<{ name: string; content: string }>;
   skipped?: string[];
+}
+
+/** Slash commands available on the host command plane (`/compact`, plus
+ *  anything user plugins registered), answer to `command.list`. */
+export interface CommandCatalog {
+  v: 1;
+  type: "command.catalog";
+  sessionId: string;
+  commands: Array<{ name: string; description: string }>;
+}
+
+/** Outcome of a host-side action (`command.run`, `session.export`,
+ *  `plugin.setEnabled`); rendered as a system bubble in the chat. */
+export interface CommandResultEvent {
+  v: 1;
+  type: "command.result";
+  sessionId: string;
+  ok: boolean;
+  text: string;
 }
 
 export interface ModelCatalog {
@@ -361,4 +446,6 @@ export type WebviewEvent =
   | PluginCatalog
   | ApprovalRequestEvent
   | PermissionState
-  | FilePicked;
+  | FilePicked
+  | CommandCatalog
+  | CommandResultEvent;

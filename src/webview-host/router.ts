@@ -1,14 +1,19 @@
 import type * as vscode from "vscode";
-import type { HostCommand, WebviewEvent } from "../shared/protocol";
-import type { DshHandle } from "../dsh-bridge/boot";
+import * as path from "node:path";
+import type { HostCommand, PluginCatalogEntry, WebviewEvent } from "../shared/protocol";
+import type { DshHandle, RuntimePluginInfo } from "../dsh-bridge/boot";
 import type { PluginInfo } from "../dsh-bridge/plugins";
 import { cancelTurn, pushUserMessage } from "../dsh-bridge/agents";
 import { answerApproval, cancelSessionApprovals } from "../dsh-bridge/approvals";
 import { answerQuestion, cancelSessionQuestions } from "../dsh-bridge/ask-user";
+import { dshHome } from "../dsh-bridge/boot";
+import { listHostCommands, runHostCommand } from "../dsh-bridge/commands";
 import { setApiKey } from "../dsh-bridge/credentials";
+import { findSessionLog } from "../dsh-bridge/export-log";
 import { listHistory, loadTranscript } from "../dsh-bridge/history";
 import { getModelCatalog, selectModel } from "../dsh-bridge/models";
 import { getPreset, setPreset } from "../dsh-bridge/permissions";
+import { readDisabledPlugins, setPluginEnabled } from "../dsh-bridge/plugin-config";
 import { resumeSession } from "../dsh-bridge/sessions";
 
 /** Shape of the webview view we need; keeps the router testable without
@@ -35,6 +40,11 @@ export interface RouterDsh {
   ctx: DshHandle["ctx"];
   /** Boot-time user-plugin load outcomes; drives the plugin panel. */
   plugins?: PluginInfo[];
+  /** Boot outcomes of the runtime plugin set; drives the plugin panel. */
+  runtimePlugins?: RuntimePluginInfo[];
+  /** Workspace root; stamps session export lookups with the right
+   *  project directory. */
+  workspaceRoot?: string;
 }
 
 /** Host capabilities the router needs beyond the webview channel.
@@ -42,7 +52,9 @@ export interface RouterDsh {
  *  material never transits the webview DOM. `openPluginsDir` reveals
  *  the plugins directory in the OS file manager. `pickFiles` shows a
  *  native file picker and reads the chosen text files; binary or
- *  oversize picks are named in `skipped`. */
+ *  oversize picks are named in `skipped`. `saveFile` copies `sourcePath`
+ *  to a destination chosen through a native save dialog (returns false
+ *  when cancelled). `reloadWindow` reloads the extension host window. */
 export interface RouterDeps {
   promptSecret?: (title: string) => Promise<string | undefined>;
   openPluginsDir?: () => void;
@@ -50,6 +62,32 @@ export interface RouterDeps {
     files: Array<{ name: string; content: string }>;
     skipped?: string[];
   }>;
+  saveFile?: (defaultName: string, sourcePath: string) => Promise<boolean>;
+  reloadWindow?: () => void;
+}
+
+/** Merge the runtime set (with live enabled flags from the config file)
+ *  and the user-plugin outcomes into one wire catalog. */
+async function buildPluginCatalog(dsh: RouterDsh): Promise<PluginCatalogEntry[]> {
+  const disabled = await readDisabledPlugins(dshHome());
+  const runtime: PluginCatalogEntry[] = (dsh.runtimePlugins ?? []).map((p) => ({
+    scope: "runtime",
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    required: p.required,
+    enabled: p.required || !disabled.has(p.id),
+    status: p.status,
+    ...(p.error ? { error: p.error } : null),
+  }));
+  const user: PluginCatalogEntry[] = (dsh.plugins ?? []).map((p) => ({
+    scope: "user",
+    id: p.id,
+    path: p.path,
+    status: p.status,
+    ...(p.error ? { error: p.error } : null),
+  }));
+  return [...runtime, ...user];
 }
 
 export function installRouter(
@@ -70,7 +108,8 @@ export function installRouter(
     try {
       // Await the (possibly still booting) DSH handle. Boot failure
       // rejects here and surfaces as a protocol error event below.
-      const { ctx, plugins } = await dsh;
+      const handle = await dsh;
+      const { ctx } = handle;
       switch (msg.type) {
         case "chat.send": {
           // Inline attachments ahead of the user's text so the agent
@@ -144,7 +183,7 @@ export function installRouter(
           await view.webview.postMessage({
             v: 1,
             type: "plugin.catalog",
-            plugins: plugins ?? [],
+            plugins: await buildPluginCatalog(handle),
           });
           await view.webview.postMessage({
             v: 1,
@@ -156,9 +195,77 @@ export function installRouter(
           await view.webview.postMessage({
             v: 1,
             type: "plugin.catalog",
-            plugins: plugins ?? [],
+            plugins: await buildPluginCatalog(handle),
           });
           break;
+        case "plugin.setEnabled": {
+          await setPluginEnabled(dshHome(), msg.id, msg.enabled);
+          await view.webview.postMessage({
+            v: 1,
+            type: "plugin.catalog",
+            plugins: await buildPluginCatalog(handle),
+          });
+          await view.webview.postMessage({
+            v: 1,
+            type: "command.result",
+            sessionId: "",
+            ok: true,
+            text: `Plugin "${msg.id}" ${msg.enabled ? "enabled" : "disabled"} — reload the window to apply.`,
+          });
+          break;
+        }
+        case "host.reload":
+          deps.reloadWindow?.();
+          break;
+        case "command.list":
+          await view.webview.postMessage({
+            v: 1,
+            type: "command.catalog",
+            sessionId: msg.sessionId,
+            commands: listHostCommands(ctx, msg.sessionId),
+          });
+          break;
+        case "command.run": {
+          const outcome = await runHostCommand(ctx, msg.sessionId, msg.line);
+          await view.webview.postMessage({
+            v: 1,
+            type: "command.result",
+            sessionId: msg.sessionId,
+            ok: outcome.ok,
+            text: outcome.text,
+          });
+          break;
+        }
+        case "session.export": {
+          const located = await findSessionLog(
+            path.join(dshHome(), "sessions"),
+            msg.sessionId,
+            handle.workspaceRoot,
+          );
+          if (!located) {
+            await view.webview.postMessage({
+              v: 1,
+              type: "command.result",
+              sessionId: msg.sessionId,
+              ok: false,
+              text: "Nothing to export yet — this session has not been persisted.",
+            });
+            break;
+          }
+          const saved = deps.saveFile
+            ? await deps.saveFile(located.fileName, located.path)
+            : false;
+          if (saved) {
+            await view.webview.postMessage({
+              v: 1,
+              type: "command.result",
+              sessionId: msg.sessionId,
+              ok: true,
+              text: `Session log exported (${located.fileName}).`,
+            });
+          }
+          break;
+        }
         case "plugin.openDir":
           deps.openPluginsDir?.();
           break;
